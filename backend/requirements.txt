@@ -1,0 +1,27 @@
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# Settings
+pydantic-settings==2.4.0
+python-dotenv==1.0.1
+
+# LLM providers
+groq==0.11.0
+httpx==0.27.2
+
+# Database
+neo4j==5.24.0
+
+# Data / ML
+yfinance==0.2.43
+finnhub-python==2.4.20
+torch==2.4.1
+numpy==1.26.4
+pandas==2.2.3
+
+# Scheduler
+apscheduler==3.10.4
+
+# Utilities
+cachetools==5.5.0
