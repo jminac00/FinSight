@@ -25,6 +25,8 @@ dependencies = [
     "apscheduler>=3.10.4",
     # Utilities
     "cachetools>=5.5.0",
+    "openai>=2.41.0",
+    "neo4j-graphrag>=1.17.0",
 ]
 
 [dependency-groups]

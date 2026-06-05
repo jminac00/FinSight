@@ -4,6 +4,7 @@ from functools import lru_cache
 from app.llm.base import LLMService
 from app.llm.groq_provider import GroqProvider
 from app.llm.ollama_provider import OllamaProvider
+from app.llm.openai_provider import OpenAIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -24,4 +25,8 @@ def get_llm_service() -> LLMService:
         logger.info("LLM provider: Ollama (%s @ %s)", settings.ollama_model, settings.ollama_base_url)
         return OllamaProvider(base_url=settings.ollama_base_url, model=settings.ollama_model)
 
-    raise ValueError(f"Unknown LLM_PROVIDER: {provider!r}. Must be 'groq' or 'ollama'.")
+    if provider == "openai":
+        logger.info("LLM provider: OpenAI (%s)", settings.openai_model)
+        return OpenAIProvider(api_key=settings.openai_api_key, model=settings.openai_model)
+
+    raise ValueError(f"Unknown LLM_PROVIDER: {provider!r}. Must be 'groq', 'ollama', or 'openai'.")

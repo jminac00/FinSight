@@ -98,8 +98,11 @@ cuatro módulos de análisis y presentando el resultado en español.
 | Frontend | React 18 + Vite + Tailwind CSS | SPA, desplegada en Vercel |
 | Backend | FastAPI (Python 3.11+) | Desplegado en Render (free tier, sin GPU) |
 | BD grafos | Neo4j AuraDB free tier (512 MB) | Módulo de sentimiento (GraphRAG) |
-| LLM producción | Groq API — Llama 3.1 70B | Gratuito, sin GPU |
-| LLM desarrollo | Ollama local — Llama 3.1 8B / Mistral 7B | RTX 4060, desarrollo offline |
+| GraphRAG lib | neo4j-graphrag (Python) | Retrieval vectorial sobre Neo4j |
+| LLM activo | OpenAI API — gpt-5.4-mini | Chat completion + extracción estructural |
+| LLM alternativo | Groq API — Llama 3.1 70B | Fallback gratuito (`LLM_PROVIDER=groq`) |
+| LLM desarrollo | Ollama local — Llama 3.1 8B | RTX 4060, offline (`LLM_PROVIDER=ollama`) |
+| Embeddings | OpenAI — text-embedding-3-large | 3 072 dims, vector index en Neo4j |
 | ML | PyTorch — modelos LSTM por ticker | Ficheros .pt + .json de metadatos |
 | Scheduler | APScheduler embebido en FastAPI | Reentrenamiento diario automático |
 | Config | pydantic-settings + variables de entorno | Nunca valores hardcodeados |
@@ -133,18 +136,23 @@ cuatro módulos de análisis y presentando el resultado en español.
 │   │   │   └── technical/
 │   │   ├── llm/               # Patrón Adaptador LLM (CRÍTICO)
 │   │   │   ├── base.py        # Interfaz abstracta LLMService
+│   │   │   ├── openai_provider.py
 │   │   │   ├── groq_provider.py
 │   │   │   ├── ollama_provider.py
 │   │   │   └── factory.py     # get_llm_service() con lru_cache
 │   │   ├── models/            # Schemas Pydantic (request/response)
 │   │   ├── core/              # Config (pydantic-settings), middleware
 │   │   └── scheduler/         # APScheduler jobs
+│   ├── scripts/               # Procesos batch offline (construcción del grafo)
+│   │   ├── build_knowledge_graph.py
+│   │   └── kg_builder/        # Módulos de ingesta: loaders, embeddings, neo4j, LLM
+│   │       └── data/          # Datasets de entrenamiento del grafo (FinEntity, FinMarBa)
 │   ├── ml_models/             # Ficheros .pt + .json por ticker
 │   ├── .env.example
 │   ├── pyproject.toml         # Dependencias (fuente de verdad)
 │   └── uv.lock                # Lockfile commiteado en git
 │
-├── data/                      # CSVs históricos OHLC (en .gitignore)
+├── data/                      # CSVs históricos OHLC para Deep Learning (en .gitignore)
 ├── notebooks/                 # Jupyter notebooks de entrenamiento
 ├── .gitignore
 ├── README.md
@@ -154,7 +162,7 @@ cuatro módulos de análisis y presentando el resultado en español.
 ### 2.4 Módulos funcionales
 
 **Módulo 1 — Análisis de Sentimiento (GraphRAG)**
-- Flujo: NewsAPI → embeddings semánticos → búsqueda Neo4j (k-hop, k=2) → Groq LLM
+- Flujo: NewsAPI → embeddings semánticos → búsqueda Neo4j (k-hop, k=2) → OpenAI LLM
 - Salida: `{label, score[-1,1], confidence[0,1], explanation, influential_news[{title,url}]}`
 - Caché: TTL configurable (por defecto 30 min) — NewsAPI tiene límite de 100 req/día
 
@@ -165,7 +173,7 @@ cuatro módulos de análisis y presentando el resultado en español.
 - Actualización diaria automática vía APScheduler (~22:00 CET) con datos reales únicamente
 
 **Módulo 3 — Análisis Fundamental**
-- Flujo: Yahoo Finance / Finnhub → Groq LLM → explicación en lenguaje natural
+- Flujo: Yahoo Finance / Finnhub → OpenAI LLM → explicación en lenguaje natural
 - Salida: `{metrics: dict, llm_analysis: str, cached_at: datetime}`
 - Caché: hasta el inicio de la siguiente jornada de mercado (datos trimestrales/anuales)
 
@@ -176,7 +184,7 @@ cuatro módulos de análisis y presentando el resultado en español.
 
 **Informe consolidado**
 - Los 4 módulos se ejecutan en paralelo con `asyncio.gather()`
-- Groq LLM sintetiza los 4 resultados → conclusión global en español
+- OpenAI LLM sintetiza los 4 resultados → conclusión global en español
 - Incluye disclaimer legal prominente (RF-06, RNF-32)
 
 ### 2.5 Patrón LLM centralizado (CRÍTICO)
@@ -187,11 +195,12 @@ Cambiar de proveedor **no debe requerir modificar la lógica de ningún módulo*
 ```
 LLMService (base.py — clase abstracta)
     .complete(system_prompt: str, user_prompt: str) -> str   [async]
-        ├── GroqProvider      → Groq API (Llama 3.1 70B)   — PRODUCCIÓN
-        └── OllamaProvider    → Ollama local                — DESARROLLO
+        ├── OpenAIProvider    → OpenAI API (gpt-5.4-mini)   — ACTIVO
+        ├── GroqProvider      → Groq API (Llama 3.1 70B)    — ALTERNATIVO
+        └── OllamaProvider    → Ollama local                 — DESARROLLO
 ```
 
-El proveedor activo se selecciona con `LLM_PROVIDER=groq|ollama` (variable de entorno).
+El proveedor activo se selecciona con `LLM_PROVIDER=openai|groq|ollama` (variable de entorno).
 `factory.py` expone `get_llm_service()` con `lru_cache` para singleton.
 
 ### 2.6 Variables de entorno requeridas
@@ -200,7 +209,10 @@ El fichero `.env.example` debe contener exactamente estas variables (sin valores
 
 ```bash
 # LLM
-LLM_PROVIDER=groq                      # groq | ollama
+LLM_PROVIDER=openai                    # openai | groq | ollama
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-5.4-mini
+OPENAI_EMBEDDING_MODEL=text-embedding-3-large
 GROQ_API_KEY=
 GROQ_MODEL=llama-3.1-70b-versatile
 OLLAMA_BASE_URL=http://localhost:11434
@@ -239,7 +251,7 @@ LRU_CACHE_MAX_MODELS=10
 | Datos solo EOD (no tiempo real intradía) | No se puede hacer análisis intradiario | Todo el análisis de precio se basa en datos de cierre |
 | Modelos LSTM solo para acciones del Nasdaq | Soporte parcial para otras acciones | Informar al usuario con RF-27; documentado en la memoria |
 | Procesamiento interno en inglés | Noticias, embeddings y prompts en inglés | Prompt engineering explícito para respuestas en español |
-| Presupuesto cero | Todo el stack debe ser gratuito | Servicios con tiers gratuitos generosos en todos los casos |
+| Coste OpenAI | API de pago (LLM + embeddings) | Uso acotado al proceso batch offline y análisis por demanda; sin streaming continuo |
 
 ### 2.8 Restricciones de seguridad y calidad
 

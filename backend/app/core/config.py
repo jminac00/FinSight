@@ -18,16 +18,20 @@ class Settings(BaseSettings):
     )
 
     # LLM
-    llm_provider: Literal["groq", "ollama"] = "groq"
+    llm_provider: Literal["groq", "ollama", "openai"] = "openai"
     groq_api_key: str = ""
     groq_model: str = "llama-3.1-70b-versatile"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-5.4-mini"
+    openai_embedding_model: str = "text-embedding-3-large"
 
     # External services
     neo4j_uri: str = ""
     neo4j_username: str = ""
     neo4j_password: str = ""
+    neo4j_database: str = "neo4j"
     newsapi_key: str = ""
     finnhub_api_key: str = ""
 
@@ -53,6 +57,8 @@ class Settings(BaseSettings):
         missing = []
         if not self.groq_api_key and self.llm_provider == "groq":
             missing.append("GROQ_API_KEY")
+        if not self.openai_api_key and self.llm_provider == "openai":
+            missing.append("OPENAI_API_KEY")
         if not self.neo4j_uri:
             missing.append("NEO4J_URI")
         if not self.newsapi_key:
