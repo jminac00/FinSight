@@ -10,8 +10,17 @@ Autor: Javier Miñambres Calvo
 
 ### Prerequisitos
 
-- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) (gestión de Python y dependencias)
 - Node.js 18+ y npm
+
+Instalar `uv` (si no está disponible):
+```bash
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
 ---
 
@@ -20,26 +29,29 @@ Autor: Javier Miñambres Calvo
 ```bash
 cd backend
 
-# 1. Crear y activar entorno virtual
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS / Linux:
-source .venv/bin/activate
+# 1. Crear entorno virtual e instalar dependencias (uv gestiona Python automáticamente)
+uv sync
 
-# 2. Instalar dependencias
-pip install -r requirements.txt
-
-# 3. Configurar variables de entorno
+# 2. Configurar variables de entorno
 cp .env.example .env
 # Editar .env con tus claves de API
 
-# 4. Arrancar el servidor
-uvicorn app.main:app --reload
+# 3. Arrancar el servidor
+uv run uvicorn app.main:app --reload
 ```
 
 El backend queda disponible en `http://localhost:8000`.
 Documentación interactiva: `http://localhost:8000/api/docs`
+
+**Comandos uv habituales:**
+
+```bash
+uv add <paquete>          # añadir dependencia
+uv add --dev <paquete>    # añadir dependencia de desarrollo
+uv remove <paquete>       # eliminar dependencia
+uv sync                   # instalar/actualizar según uv.lock
+uv run <comando>          # ejecutar comando en el entorno virtual
+```
 
 **Endpoints disponibles:**
 
@@ -86,6 +98,15 @@ Copia `backend/.env.example` a `backend/.env` y rellena los valores:
 
 ---
 
+## Despliegue en Render (backend)
+
+Configurar en el dashboard de Render:
+
+- **Build command:** `pip install uv && uv sync --no-dev --frozen`
+- **Start command:** `uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+---
+
 ## Estructura del proyecto
 
 ```
@@ -99,7 +120,9 @@ Copia `backend/.env.example` a `backend/.env` y rellena los valores:
 │   │   ├── models/    # Schemas Pydantic
 │   │   ├── core/      # Configuración (pydantic-settings)
 │   │   └── scheduler/ # APScheduler (reentrenamiento diario)
-│   └── ml_models/     # Ficheros .pt y .json por ticker
+│   ├── ml_models/     # Ficheros .pt y .json por ticker
+│   ├── pyproject.toml # Dependencias (fuente de verdad)
+│   └── uv.lock        # Lockfile (commiteado en git)
 ├── data/              # CSVs históricos OHLC (en .gitignore)
 └── notebooks/         # Jupyter notebooks de entrenamiento
 ```

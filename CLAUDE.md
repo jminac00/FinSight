@@ -72,6 +72,7 @@ Criterios débiles ("que funcione") exigen aclaraciones constantes.
 - **Frontend**: componentes funcionales React con hooks. Sin class components.
 - **Sin valores hardcodeados**: todo configurable vía variables de entorno o `settings`.
 - **Logs**: usar el módulo estándar `logging` de Python con logs estructurados.
+- **Dependencias**: gestionadas con `uv`. Añadir con `uv add <pkg>`, nunca `pip install`. Commitear siempre `uv.lock`.
 
 ---
 
@@ -102,6 +103,7 @@ cuatro módulos de análisis y presentando el resultado en español.
 | ML | PyTorch — modelos LSTM por ticker | Ficheros .pt + .json de metadatos |
 | Scheduler | APScheduler embebido en FastAPI | Reentrenamiento diario automático |
 | Config | pydantic-settings + variables de entorno | Nunca valores hardcodeados |
+| Gestión de deps | uv | `pyproject.toml` + `uv.lock` commiteado; nunca `pip` directo |
 | Hosting frontend | Vercel (gratuito) | Deploys automáticos desde Git |
 | Hosting backend | Render (gratuito) | Free tier Python, acepta ficheros .pt |
 | Control de versiones | Git / GitHub | Repositorio compartido |
@@ -139,7 +141,8 @@ cuatro módulos de análisis y presentando el resultado en español.
 │   │   └── scheduler/         # APScheduler jobs
 │   ├── ml_models/             # Ficheros .pt + .json por ticker
 │   ├── .env.example
-│   └── requirements.txt
+│   ├── pyproject.toml         # Dependencias (fuente de verdad)
+│   └── uv.lock                # Lockfile commiteado en git
 │
 ├── data/                      # CSVs históricos OHLC (en .gitignore)
 ├── notebooks/                 # Jupyter notebooks de entrenamiento
