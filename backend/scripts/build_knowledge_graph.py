@@ -55,7 +55,7 @@ async def _process_finentity(
     embeddings = await emb.embed_texts(texts, settings.openai_api_key, settings.openai_embedding_model)
 
     logger.info("FinEntity: running LLM extraction…")
-    extractions = await extractor.extract_batch(texts, llm_service, concurrency=10)
+    extractions = await extractor.extract_batch(texts, llm_service, concurrency=3)
 
     async with driver.session(database=database) as session:
         for i, (record, embedding, extraction) in enumerate(
@@ -125,7 +125,7 @@ async def _process_finmarba(
     embeddings = await emb.embed_texts(texts, settings.openai_api_key, settings.openai_embedding_model)
 
     logger.info("FinMarBa: running LLM extraction…")
-    extractions = await extractor.extract_batch(texts, llm_service, concurrency=10)
+    extractions = await extractor.extract_batch(texts, llm_service, concurrency=3)
 
     async with driver.session(database=database) as session:
         for i, (record, embedding, extraction) in enumerate(

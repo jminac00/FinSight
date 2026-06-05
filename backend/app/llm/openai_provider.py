@@ -11,7 +11,7 @@ class OpenAIProvider(LLMService):
     """LLM provider backed by the OpenAI API."""
 
     def __init__(self, api_key: str, model: str) -> None:
-        self._client = AsyncOpenAI(api_key=api_key)
+        self._client = AsyncOpenAI(api_key=api_key, max_retries=6)
         self._model = model
 
     async def complete(self, system_prompt: str, user_prompt: str) -> str:
