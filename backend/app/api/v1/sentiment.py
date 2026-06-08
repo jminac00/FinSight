@@ -27,7 +27,10 @@ async def get_sentiment(
         label="positivo",
         score=0.65,
         confidence=0.82,
-        explanation=f"Las noticias recientes sobre {ticker} muestran una tendencia positiva impulsada por resultados trimestrales sólidos.",
+        explanation=(
+            f"Las noticias recientes sobre {ticker} muestran una tendencia "
+            "positiva impulsada por resultados trimestrales sólidos."
+        ),
         influential_news=[
             NewsItem(
                 title=f"{ticker} beats Q3 earnings expectations",

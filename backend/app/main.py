@@ -60,6 +60,7 @@ def create_app() -> FastAPI:
         return response
 
     from app.api.v1 import router as v1_router
+
     app.include_router(v1_router, prefix="/api/v1")
 
     return app

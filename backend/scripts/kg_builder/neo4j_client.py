@@ -3,7 +3,6 @@
 import hashlib
 import logging
 import uuid
-from typing import Optional
 
 from neo4j import AsyncDriver, AsyncGraphDatabase
 
@@ -22,7 +21,7 @@ def news_id(text: str) -> str:
 
 async def merge_asset(
     session,
-    ticker: Optional[str],
+    ticker: str | None,
     name: str,
     asset_type: str,
 ) -> None:
@@ -53,9 +52,9 @@ async def merge_news(
     session,
     node_id: str,
     text: str,
-    title: Optional[str],
+    title: str | None,
     embedding: list[float],
-    published_at: Optional[str],
+    published_at: str | None,
     source: str,
 ) -> None:
     await session.run(
@@ -79,11 +78,11 @@ async def merge_news(
 async def merge_mentions(
     session,
     news_id: str,
-    ticker: Optional[str],
+    ticker: str | None,
     entity_name: str,
     sentiment_label: str,
     sentiment_score: int,
-    pct_change: Optional[float] = None,
+    pct_change: float | None = None,
 ) -> None:
     asset_key = ticker if ticker else entity_name
     query = """
@@ -126,7 +125,7 @@ async def merge_event(
     event_id: str,
     event_type: str,
     description: str,
-    date: Optional[str],
+    date: str | None,
 ) -> None:
     await session.run(
         """
@@ -152,7 +151,7 @@ async def merge_describes(session, news_id: str, event_id: str) -> None:
     )
 
 
-async def merge_affects(session, event_id: str, ticker: Optional[str], entity_name: str) -> None:
+async def merge_affects(session, event_id: str, ticker: str | None, entity_name: str) -> None:
     asset_key = ticker if ticker else entity_name
     await session.run(
         """

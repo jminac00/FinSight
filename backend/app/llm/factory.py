@@ -22,7 +22,9 @@ def get_llm_service() -> LLMService:
         return GroqProvider(api_key=settings.groq_api_key, model=settings.groq_model)
 
     if provider == "ollama":
-        logger.info("LLM provider: Ollama (%s @ %s)", settings.ollama_model, settings.ollama_base_url)
+        logger.info(
+            "LLM provider: Ollama (%s @ %s)", settings.ollama_model, settings.ollama_base_url
+        )
         return OllamaProvider(base_url=settings.ollama_base_url, model=settings.ollama_model)
 
     if provider == "openai":
