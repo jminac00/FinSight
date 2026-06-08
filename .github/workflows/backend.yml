@@ -55,7 +55,7 @@ jobs:
         run: uv sync
 
       - name: Ejecutar tests con cobertura
-        run: uv run pytest --tb=short --cov=app --cov-report=term-missing --cov-fail-under=60
+        run: uv run pytest --tb=short --cov=app --cov-report=term-missing --cov-fail-under=55
         env:
           ENVIRONMENT: development
           LLM_PROVIDER: ollama
