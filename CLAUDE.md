@@ -76,9 +76,79 @@ Criterios débiles ("que funcione") exigen aclaraciones constantes.
 
 ---
 
-## 2. Contexto del Proyecto
+## 2. Flujo de Desarrollo (OBLIGATORIO)
 
-### 2.1 Descripción general
+Este proceso se aplica a **cada unidad de trabajo**, sin excepción.
+
+### 2.1 Ciclo completo por unidad de trabajo
+
+```
+1. Issue en GitHub → verificar: título claro, criterios de aceptación, labels y milestone presentes
+2. Rama desde main  → verificar: nombre sigue la convención (feature/|fix/|test/ + descripción-corta)
+3. Tests primero (TDD) → verificar: los tests fallan antes de implementar
+4. Implementación → verificar: los tests pasan; todos los tests previos siguen pasando
+5. Pull Request → verificar: referencia el número de issue; CI verde antes de mergear
+```
+
+### 2.2 GitHub Issues
+
+Cada issue debe incluir:
+- Título descriptivo en inglés.
+- Descripción con criterios de aceptación claros.
+- Labels `módulo:` y `tipo:` apropiados.
+- Milestone correspondiente.
+
+### 2.3 Ramas
+
+Convención de nombres (desde `main`):
+- `feature/short-description` — nueva funcionalidad
+- `fix/short-description` — corrección de bug
+- `test/short-description` — solo tests
+
+### 2.4 TDD ligero
+
+1. Escribir los tests → deben **fallar**.
+2. Escribir la implementación mínima → tests deben **pasar**.
+3. Verificar que todos los tests previos siguen pasando.
+
+### 2.5 Pull Requests
+
+- El PR referencia el número de issue (`Closes #N`).
+- No se mergea hasta que **todos los checks de CI estén en verde**.
+- CI backend: Ruff lint + pytest.
+- CI frontend: ESLint + build de producción Vite.
+- CodeQL en cada push a `main`.
+
+### 2.6 Commits (Conventional Commits — ESTRICTO)
+
+Formato: `type(scope): description`
+
+| Tipo | Uso |
+|------|-----|
+| `feat` | Nueva funcionalidad |
+| `fix` | Corrección de bug |
+| `test` | Añadir o modificar tests |
+| `docs` | Solo documentación |
+| `refactor` | Refactorización sin cambio de comportamiento |
+| `ci` | Cambios en pipelines CI/CD |
+| `chore` | Mantenimiento, dependencias |
+
+Ejemplos válidos:
+```
+feat(sentiment): add NewsAPI client with pagination
+test(api): add contract tests for report endpoint
+fix(deep-learning): handle missing model file gracefully
+```
+
+**Reglas absolutas para commits, issues y PRs:**
+- Escritos en **inglés**.
+- **Sin ninguna referencia a herramientas de IA, modelos de lenguaje o asistentes de IA** de ningún tipo. El texto debe leerse como si lo hubiera escrito el desarrollador.
+
+---
+
+## 3. Contexto del Proyecto
+
+### 3.1 Descripción general
 
 TFG de Ingeniería Informática — Universidad de León (España).
 Plataforma web de análisis financiero de acciones del mercado americano (Nasdaq).
@@ -91,7 +161,7 @@ El colaborador del Grado en Finanzas entrega el análisis técnico y fundamental
 un informe de análisis completo y comprensible de una acción bursátil, combinando
 cuatro módulos de análisis y presentando el resultado en español.
 
-### 2.2 Stack tecnológico
+### 3.2 Stack tecnológico
 
 | Capa | Tecnología | Notas |
 |------|-----------|-------|
@@ -111,29 +181,53 @@ cuatro módulos de análisis y presentando el resultado en español.
 | Hosting backend | Render (gratuito) | Free tier Python, acepta ficheros .pt |
 | Control de versiones | Git / GitHub | Repositorio compartido |
 
-### 2.3 Estructura de carpetas objetivo
+### 3.3 Estructura de carpetas
 
 ```
 /
+├── .github/
+│   └── workflows/
+│       ├── backend.yml        # CI: Ruff + pytest
+│       ├── frontend.yml       # CI: ESLint + Vite build
+│       └── codeql.yml         # Análisis de seguridad en pushes a main
+│
 ├── frontend/
-│   └── src/
-│       ├── components/
-│       ├── pages/
-│       └── services/          # Llamadas a la API REST
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Disclaimer.jsx
+│   │   │   ├── ErrorMessage.jsx
+│   │   │   ├── LoadingSpinner.jsx
+│   │   │   └── SearchBar.jsx
+│   │   ├── pages/
+│   │   │   ├── HomePage.jsx
+│   │   │   ├── PrivacyPage.jsx
+│   │   │   └── ReportPage.jsx
+│   │   ├── services/
+│   │   │   └── api.js         # Llamadas a la API REST
+│   │   ├── App.jsx
+│   │   ├── main.jsx
+│   │   └── index.css
+│   ├── eslint.config.js
+│   ├── index.html
+│   ├── package.json
+│   ├── postcss.config.js
+│   ├── tailwind.config.js
+│   └── vite.config.js
 │
 ├── backend/
 │   ├── app/
 │   │   ├── api/v1/            # Endpoints REST
+│   │   │   ├── health.py
 │   │   │   ├── sentiment.py
 │   │   │   ├── deep_learning.py
 │   │   │   ├── fundamental.py
 │   │   │   ├── technical.py
 │   │   │   └── report.py
 │   │   ├── services/          # Lógica de negocio por módulo
-│   │   │   ├── sentiment/
-│   │   │   ├── deep_learning/
-│   │   │   ├── fundamental/
-│   │   │   └── technical/
+│   │   │   ├── sentiment/service.py
+│   │   │   ├── deep_learning/service.py
+│   │   │   ├── fundamental/service.py
+│   │   │   └── technical/service.py
 │   │   ├── llm/               # Patrón Adaptador LLM (CRÍTICO)
 │   │   │   ├── base.py        # Interfaz abstracta LLMService
 │   │   │   ├── openai_provider.py
@@ -141,13 +235,35 @@ cuatro módulos de análisis y presentando el resultado en español.
 │   │   │   ├── ollama_provider.py
 │   │   │   └── factory.py     # get_llm_service() con lru_cache
 │   │   ├── models/            # Schemas Pydantic (request/response)
-│   │   ├── core/              # Config (pydantic-settings), middleware
-│   │   └── scheduler/         # APScheduler jobs
+│   │   │   ├── common.py
+│   │   │   ├── sentiment.py
+│   │   │   ├── deep_learning.py
+│   │   │   ├── fundamental.py
+│   │   │   ├── technical.py
+│   │   │   └── report.py
+│   │   ├── core/
+│   │   │   └── config.py      # pydantic-settings
+│   │   ├── scheduler/
+│   │   │   └── jobs.py        # APScheduler jobs
+│   │   └── main.py            # Punto de entrada FastAPI
 │   ├── scripts/               # Procesos batch offline (construcción del grafo)
 │   │   ├── build_knowledge_graph.py
-│   │   └── kg_builder/        # Módulos de ingesta: loaders, embeddings, neo4j, LLM
-│   │       └── data/          # Datasets de entrenamiento del grafo (FinEntity, FinMarBa)
-│   ├── ml_models/             # Ficheros .pt + .json por ticker
+│   │   └── kg_builder/
+│   │       ├── loaders/
+│   │       │   ├── finentity.py
+│   │       │   └── finmarba.py
+│   │       ├── data/          # Datasets FinEntity + FinMarBa (en .gitignore)
+│   │       ├── embeddings.py
+│   │       ├── entity_resolver.py
+│   │       ├── llm_extractor.py
+│   │       ├── neo4j_client.py
+│   │       ├── schema.py
+│   │       └── topics.py
+│   ├── tests/
+│   │   ├── api/
+│   │   │   └── test_health.py
+│   │   └── conftest.py
+│   ├── ml_models/             # Ficheros .pt + .json por ticker (en .gitignore)
 │   ├── .env.example
 │   ├── pyproject.toml         # Dependencias (fuente de verdad)
 │   └── uv.lock                # Lockfile commiteado en git
@@ -155,11 +271,13 @@ cuatro módulos de análisis y presentando el resultado en español.
 ├── data/                      # CSVs históricos OHLC para Deep Learning (en .gitignore)
 ├── notebooks/                 # Jupyter notebooks de entrenamiento
 ├── .gitignore
+├── .gitattributes
+├── LICENSE
 ├── README.md
 └── CLAUDE.md
 ```
 
-### 2.4 Módulos funcionales
+### 3.4 Módulos funcionales
 
 **Módulo 1 — Análisis de Sentimiento (GraphRAG)**
 - Flujo: NewsAPI → embeddings semánticos → búsqueda Neo4j (k-hop, k=2) → OpenAI LLM
@@ -187,7 +305,7 @@ cuatro módulos de análisis y presentando el resultado en español.
 - OpenAI LLM sintetiza los 4 resultados → conclusión global en español
 - Incluye disclaimer legal prominente (RF-06, RNF-32)
 
-### 2.5 Patrón LLM centralizado (CRÍTICO)
+### 3.5 Patrón LLM centralizado (CRÍTICO)
 
 Todos los módulos llaman al LLM a través de `LLMService` (interfaz abstracta).
 Cambiar de proveedor **no debe requerir modificar la lógica de ningún módulo**.
@@ -203,7 +321,7 @@ LLMService (base.py — clase abstracta)
 El proveedor activo se selecciona con `LLM_PROVIDER=openai|groq|ollama` (variable de entorno).
 `factory.py` expone `get_llm_service()` con `lru_cache` para singleton.
 
-### 2.6 Variables de entorno requeridas
+### 3.6 Variables de entorno requeridas
 
 El fichero `.env.example` debe contener exactamente estas variables (sin valores):
 
@@ -241,7 +359,7 @@ GRAPH_HOP_DEPTH=2
 LRU_CACHE_MAX_MODELS=10
 ```
 
-### 2.7 Restricciones críticas del sistema
+### 3.7 Restricciones críticas del sistema
 
 | Restricción | Impacto | Estrategia |
 |-------------|---------|------------|
@@ -253,7 +371,7 @@ LRU_CACHE_MAX_MODELS=10
 | Procesamiento interno en inglés | Noticias, embeddings y prompts en inglés | Prompt engineering explícito para respuestas en español |
 | Coste OpenAI | API de pago (LLM + embeddings) | Uso acotado al proceso batch offline y análisis por demanda; sin streaming continuo |
 
-### 2.8 Restricciones de seguridad y calidad
+### 3.8 Restricciones de seguridad y calidad
 
 - **HTTPS obligatorio** en producción (certificado automático por Vercel/Render).
 - **Rate limiting** en los endpoints de análisis (prevenir abuso y agotamiento de cuotas).
