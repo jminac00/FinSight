@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 
@@ -27,6 +27,6 @@ async def get_prediction(ticker: str) -> DLResult:
         current_price=182.30,
         pct_change=7.24,
         horizon_days=10,
-        trained_at=datetime(2026, 6, 3, 22, 0, 0, tzinfo=timezone.utc),
+        trained_at=datetime(2026, 6, 3, 22, 0, 0, tzinfo=UTC),
         metrics=ModelMetrics(rmse=3.12, mae=2.45, mape=1.35, r2=0.92),
     )

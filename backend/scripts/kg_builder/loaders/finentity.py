@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class Annotation:
     start: int
     end: int
-    value: str            # entity name (e.g. "Johnson & Johnson")
+    value: str  # entity name (e.g. "Johnson & Johnson")
     sentiment_label: str  # "Positive" | "Negative" | "Neutral"
 
 

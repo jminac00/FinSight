@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 
@@ -38,5 +38,5 @@ async def get_fundamental(ticker: str) -> FundamentalResult:
             "capacidad para recompras y dividendos. El ratio PER refleja la prima de "
             "crecimiento que el mercado asigna a la empresa."
         ),
-        cached_at=datetime.now(tz=timezone.utc),
+        cached_at=datetime.now(tz=UTC),
     )

@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 
@@ -41,5 +41,5 @@ async def get_technical(ticker: str) -> TechnicalResult:
             "El MACD presenta cruce alcista reciente por encima de la señal, "
             "confirmando la tendencia a corto plazo."
         ),
-        calculated_at=datetime.now(tz=timezone.utc),
+        calculated_at=datetime.now(tz=UTC),
     )

@@ -2,7 +2,6 @@
 
 import logging
 import re
-from typing import Optional
 
 import yfinance as yf
 
@@ -24,7 +23,7 @@ _QUOTE_TYPE_MAP: dict[str, str] = {
 }
 
 # Cache: key → (ticker, name, asset_type)
-_cache: dict[str, tuple[Optional[str], str, str]] = {}
+_cache: dict[str, tuple[str | None, str, str]] = {}
 
 
 def _yf_info(ticker: str) -> tuple[str, str]:
@@ -39,7 +38,7 @@ def _yf_info(ticker: str) -> tuple[str, str]:
         return ticker, "STOCK"
 
 
-def resolve_from_name(entity_name: str, text: str) -> tuple[Optional[str], str, str]:
+def resolve_from_name(entity_name: str, text: str) -> tuple[str | None, str, str]:
     """
     Resolve (ticker, name, asset_type) for a FinEntity annotation.
 

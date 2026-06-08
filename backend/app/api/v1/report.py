@@ -1,6 +1,6 @@
 import asyncio
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -38,7 +38,9 @@ async def _mock_sentiment(ticker: str) -> SentimentResult:
         confidence=0.82,
         explanation=f"Las noticias recientes sobre {ticker} muestran una tendencia positiva.",
         influential_news=[
-            NewsItem(title=f"{ticker} beats Q3 earnings", url="https://example.com/1", source="Reuters"),
+            NewsItem(
+                title=f"{ticker} beats Q3 earnings", url="https://example.com/1", source="Reuters"
+            ),
         ],
     )
 
@@ -51,7 +53,7 @@ async def _mock_deep_learning(ticker: str) -> DLResult:
         current_price=182.30,
         pct_change=7.24,
         horizon_days=10,
-        trained_at=datetime(2026, 6, 3, 22, 0, 0, tzinfo=timezone.utc),
+        trained_at=datetime(2026, 6, 3, 22, 0, 0, tzinfo=UTC),
         metrics=ModelMetrics(rmse=3.12, mae=2.45, mape=1.35, r2=0.92),
     )
 
@@ -61,8 +63,11 @@ async def _mock_fundamental(ticker: str) -> FundamentalResult:
     return FundamentalResult(
         score=7.8,
         metrics={"per": 28.5, "roe": 0.312, "ev_ebitda": 21.3},
-        llm_analysis=f"{ticker} presenta una situación financiera sólida con márgenes superiores a la media sectorial.",
-        cached_at=datetime.now(tz=timezone.utc),
+        llm_analysis=(
+            f"{ticker} presenta una situación financiera sólida con "
+            "márgenes superiores a la media sectorial."
+        ),
+        cached_at=datetime.now(tz=UTC),
     )
 
 
@@ -72,7 +77,7 @@ async def _mock_technical(ticker: str) -> TechnicalResult:
         score=6.5,
         indicators={"rsi_14": 58.3, "macd": 1.24, "sma_50": 175.80},
         llm_analysis=f"El análisis técnico de {ticker} muestra señales moderadamente alcistas.",
-        calculated_at=datetime.now(tz=timezone.utc),
+        calculated_at=datetime.now(tz=UTC),
     )
 
 
@@ -97,12 +102,13 @@ async def get_report(
         "El sentimiento de mercado es favorable, respaldado por resultados sólidos. "
         "El modelo LSTM predice una tendencia alcista a 10 días. "
         "Los fundamentales son robustos y el análisis técnico confirma el momentum positivo. "
-        "Sin embargo, recuerde que este análisis es informativo y no constituye recomendación de inversión."
+        "Sin embargo, recuerde que este análisis es informativo y "
+        "no constituye recomendación de inversión."
     )
 
     return ReportResponse(
         ticker=ticker,
-        generated_at=datetime.now(tz=timezone.utc),
+        generated_at=datetime.now(tz=UTC),
         sentiment=sentiment,
         deep_learning=dl,
         fundamental=fundamental,

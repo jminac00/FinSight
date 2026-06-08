@@ -15,9 +15,9 @@ _SENTIMENT_MAP = {1: "Positive", 0: "Neutral", -1: "Negative"}
 @dataclass
 class FinMarBaRecord:
     title: str
-    date: str                                   # ISO date string "YYYY-MM-DD"
+    date: str  # ISO date string "YYYY-MM-DD"
     tickers: list[str] = field(default_factory=list)
-    sentiment: dict[str, str] = field(default_factory=dict)    # ticker → label
+    sentiment: dict[str, str] = field(default_factory=dict)  # ticker → label
     sentiment_score: dict[str, int] = field(default_factory=dict)  # ticker → -1/0/1
     pct_change: dict[str, float] = field(default_factory=dict)
 
@@ -55,7 +55,5 @@ def load(path: Path) -> list[FinMarBaRecord]:
         except Exception as exc:
             errors += 1
             logger.warning("FinMarBa: skipping row (parse error: %s)", exc)
-    logger.info(
-        "FinMarBa: loaded %d records from %s (%d skipped)", len(records), path.name, errors
-    )
+    logger.info("FinMarBa: loaded %d records from %s (%d skipped)", len(records), path.name, errors)
     return records

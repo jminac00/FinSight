@@ -2,8 +2,6 @@
 
 import asyncio
 import logging
-import time
-from typing import List
 
 from openai import AsyncOpenAI
 
@@ -15,13 +13,13 @@ _RETRY_BASE_DELAY = 2.0  # seconds
 
 
 async def embed_texts(
-    texts: List[str],
+    texts: list[str],
     api_key: str,
     model: str,
-) -> List[List[float]]:
+) -> list[list[float]]:
     """Return embeddings for all texts, processed in batches."""
     client = AsyncOpenAI(api_key=api_key)
-    results: List[List[float]] = []
+    results: list[list[float]] = []
 
     for i in range(0, len(texts), _BATCH_SIZE):
         batch = texts[i : i + _BATCH_SIZE]
@@ -33,9 +31,9 @@ async def embed_texts(
 
 async def _embed_batch(
     client: AsyncOpenAI,
-    texts: List[str],
+    texts: list[str],
     model: str,
-) -> List[List[float]]:
+) -> list[list[float]]:
     for attempt in range(_MAX_RETRIES):
         try:
             response = await client.embeddings.create(input=texts, model=model)

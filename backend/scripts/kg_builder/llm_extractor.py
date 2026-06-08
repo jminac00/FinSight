@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 from .topics import EVENT_TYPES, TOPICS
 
@@ -22,14 +21,15 @@ Respond ONLY with valid JSON in this exact format:
   "events": [{{"type": "string", "description": "string", "date": "YYYY-MM-DD or null"}}],
   "topics": ["string"]
 }}
-If no events are found, use an empty list. Topics must only contain values from the controlled list."""
+If no events are found, use an empty list.
+Topics must only contain values from the controlled list."""
 
 
 @dataclass
 class ExtractedEvent:
     type: str
     description: str
-    date: Optional[str]
+    date: str | None
 
 
 @dataclass
@@ -59,7 +59,9 @@ async def extract(text: str, llm_service) -> ExtractionResult:
         return ExtractionResult()
 
 
-async def extract_batch(texts: list[str], llm_service, concurrency: int = 5) -> list[ExtractionResult]:
+async def extract_batch(
+    texts: list[str], llm_service, concurrency: int = 5
+) -> list[ExtractionResult]:
     """Extract events and topics for a list of texts with bounded concurrency."""
     semaphore = asyncio.Semaphore(concurrency)
 

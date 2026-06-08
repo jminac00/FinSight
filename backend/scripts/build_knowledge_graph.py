@@ -23,15 +23,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from app.core.config import get_settings
-from app.llm.factory import get_llm_service
-from scripts.kg_builder import embeddings as emb
-from scripts.kg_builder import entity_resolver as resolver
-from scripts.kg_builder import llm_extractor as extractor
-from scripts.kg_builder import neo4j_client as neo
-from scripts.kg_builder import schema as schema_mod
-from scripts.kg_builder.loaders import finentity as fe_loader
-from scripts.kg_builder.loaders import finmarba as fm_loader
+from app.core.config import get_settings  # noqa: E402
+from app.llm.factory import get_llm_service  # noqa: E402
+from scripts.kg_builder import embeddings as emb  # noqa: E402
+from scripts.kg_builder import entity_resolver as resolver  # noqa: E402
+from scripts.kg_builder import llm_extractor as extractor  # noqa: E402
+from scripts.kg_builder import neo4j_client as neo  # noqa: E402
+from scripts.kg_builder import schema as schema_mod  # noqa: E402
+from scripts.kg_builder.loaders import finentity as fe_loader  # noqa: E402
+from scripts.kg_builder.loaders import finmarba as fm_loader  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,14 +52,16 @@ async def _process_finentity(
 ) -> None:
     texts = [r.text for r in records]
     logger.info("FinEntity: generating embeddings for %d records…", len(texts))
-    embeddings = await emb.embed_texts(texts, settings.openai_api_key, settings.openai_embedding_model)
+    embeddings = await emb.embed_texts(
+        texts, settings.openai_api_key, settings.openai_embedding_model
+    )
 
     logger.info("FinEntity: running LLM extraction…")
     extractions = await extractor.extract_batch(texts, llm_service, concurrency=3)
 
     async with driver.session(database=database) as session:
         for i, (record, embedding, extraction) in enumerate(
-            zip(records, embeddings, extractions), start=1
+            zip(records, embeddings, extractions, strict=True), start=1
         ):
             node_id = neo.news_id(record.text)
 
@@ -122,14 +124,16 @@ async def _process_finmarba(
 ) -> None:
     texts = [r.title for r in records]
     logger.info("FinMarBa: generating embeddings for %d records…", len(texts))
-    embeddings = await emb.embed_texts(texts, settings.openai_api_key, settings.openai_embedding_model)
+    embeddings = await emb.embed_texts(
+        texts, settings.openai_api_key, settings.openai_embedding_model
+    )
 
     logger.info("FinMarBa: running LLM extraction…")
     extractions = await extractor.extract_batch(texts, llm_service, concurrency=3)
 
     async with driver.session(database=database) as session:
         for i, (record, embedding, extraction) in enumerate(
-            zip(records, embeddings, extractions), start=1
+            zip(records, embeddings, extractions, strict=True), start=1
         ):
             node_id = neo.news_id(record.title)
 
@@ -220,8 +224,12 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build the FinSight Neo4j knowledge graph.")
     parser.add_argument("--finentity", metavar="PATH", help="Path to FinEntity_dataset.json")
     parser.add_argument("--finmarba", metavar="PATH", help="Path to FinMarBa_dataset.csv")
-    parser.add_argument("--limit", type=int, metavar="N", help="Process only the first N records (for testing)")
-    parser.add_argument("--init-schema", action="store_true", help="Only initialise schema, then exit")
+    parser.add_argument(
+        "--limit", type=int, metavar="N", help="Process only the first N records (for testing)"
+    )
+    parser.add_argument(
+        "--init-schema", action="store_true", help="Only initialise schema, then exit"
+    )
     return parser.parse_args()
 
 
