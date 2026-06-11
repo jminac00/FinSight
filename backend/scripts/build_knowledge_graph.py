@@ -47,14 +47,11 @@ async def _process_finentity(
     records: list,
     driver,
     database: str,
-    settings,
     llm_service,
 ) -> None:
     texts = [r.text for r in records]
     logger.info("FinEntity: generating embeddings for %d records…", len(texts))
-    embeddings = await emb.embed_texts(
-        texts, settings.openai_api_key, settings.openai_embedding_model
-    )
+    embeddings = await emb.embed_texts(texts)
 
     logger.info("FinEntity: running LLM extraction…")
     extractions = await extractor.extract_batch(texts, llm_service, concurrency=3)
@@ -119,14 +116,11 @@ async def _process_finmarba(
     records: list,
     driver,
     database: str,
-    settings,
     llm_service,
 ) -> None:
     texts = [r.title for r in records]
     logger.info("FinMarBa: generating embeddings for %d records…", len(texts))
-    embeddings = await emb.embed_texts(
-        texts, settings.openai_api_key, settings.openai_embedding_model
-    )
+    embeddings = await emb.embed_texts(texts)
 
     logger.info("FinMarBa: running LLM extraction…")
     extractions = await extractor.extract_batch(texts, llm_service, concurrency=3)
@@ -208,13 +202,13 @@ async def main(args: argparse.Namespace) -> None:
             records = fe_loader.load(Path(args.finentity))
             if args.limit:
                 records = records[: args.limit]
-            await _process_finentity(records, driver, database, settings, llm_service)
+            await _process_finentity(records, driver, database, llm_service)
 
         if args.finmarba:
             records = fm_loader.load(Path(args.finmarba))
             if args.limit:
                 records = records[: args.limit]
-            await _process_finmarba(records, driver, database, settings, llm_service)
+            await _process_finmarba(records, driver, database, llm_service)
 
     finally:
         await driver.close()
