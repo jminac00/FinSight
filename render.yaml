@@ -1,0 +1,78 @@
+services:
+  # ----------------------------------------------------------------------------
+  # Backend — FastAPI (Python Web Service)
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: finsight-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: "pip install uv && uv sync --frozen --no-dev"
+    startCommand: "uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: ENVIRONMENT
+        value: production
+      - key: LLM_PROVIDER
+        value: openai
+      - key: OPENAI_MODEL
+        value: gpt-5.4-mini
+      - key: OPENAI_EMBEDDING_MODEL
+        value: text-embedding-3-large
+      - key: NEWS_PROVIDER
+        value: finnhub
+      - key: NEO4J_DATABASE
+        value: neo4j
+      - key: CACHE_TTL_SENTIMENT
+        value: "1800"
+      - key: CACHE_TTL_FUNDAMENTAL
+        value: "86400"
+      - key: CACHE_TTL_TECHNICAL
+        value: "86400"
+      - key: PREDICTION_HORIZON_DAYS
+        value: "10"
+      - key: MAX_NEWS_ARTICLES
+        value: "10"
+      - key: GRAPH_HOP_DEPTH
+        value: "2"
+      - key: LRU_CACHE_MAX_MODELS
+        value: "10"
+      # --- Secrets: set in the Render dashboard at deploy time (never in repo) ---
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: NEWSAPI_KEY
+        sync: false
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USERNAME
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      # Public URL of the frontend static site (CORS allow-origin).
+      # Set after the frontend deploys, e.g. https://finsight-frontend.onrender.com
+      - key: FRONTEND_URL
+        sync: false
+
+  # ----------------------------------------------------------------------------
+  # Frontend — React + Vite (Static Site)
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: finsight-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: "npm ci && npm run build"
+    staticPublishPath: dist
+    routes:
+      # Proxy API calls to the backend so the frontend keeps using relative /api
+      # paths (same origin in the browser, no CORS needed).
+      - type: rewrite
+        source: /api/*
+        destination: https://finsight-backend.onrender.com/api/*
+      # SPA fallback: every other path serves index.html (React Router).
+      - type: rewrite
+        source: /*
+        destination: /index.html
