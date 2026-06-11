@@ -186,6 +186,10 @@ backend/.env
 .venv/
 backend/.venv/
 
+# Private requirements document (SRS) — kept outside the repository, see docs/adr/
+SRS_FinSight_IEEE830.docx
+SRS_FinSight_IEEE830.pdf
+
 # PyTorch model files
 *.pt
 *.pth
