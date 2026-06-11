@@ -15,6 +15,7 @@ of the project's evolution.
 | [0001](0001-openai-as-llm-and-embeddings-provider.md) | OpenAI as LLM and embeddings provider in production | SRS v1.1 | Accepted |
 | [0002](0002-cookie-consent-management.md) | Cookie and granular consent management | SRS v1.2 | Accepted |
 | [0003](0003-consolidate-deployment-on-render.md) | Consolidate full deployment on Render | SRS v1.3 | Accepted |
+| [0004](0004-design-patterns-for-analysis-orchestration.md) | Design patterns for analysis orchestration | Internal architecture design | Accepted |
 
 ## Format
 
