@@ -7,8 +7,12 @@ import pytest
 from app.api.v1.sentiment import get_sentiment_service
 from app.main import app
 from app.models.sentiment import NewsItem, SentimentResult
-from app.services.sentiment.news_client import NewsAPIQuotaError
-from app.services.sentiment.service import NoRecentNewsError, SentimentAnalysisError
+from app.services.sentiment.news.base import NewsQuotaError
+from app.services.sentiment.service import (
+    NoRecentNewsError,
+    SentimentAnalysisError,
+    UnknownTickerError,
+)
 
 _RESULT = SentimentResult(
     label="positivo",
@@ -63,11 +67,19 @@ def test_get_sentiment_invalid_ticker_returns_422(client, mock_service):
 
 
 def test_get_sentiment_quota_exhausted_returns_503(client, mock_service):
-    mock_service.analyze.side_effect = NewsAPIQuotaError("quota exhausted")
+    mock_service.analyze.side_effect = NewsQuotaError("quota exhausted")
 
     response = client.get("/api/v1/sentiment/AAPL")
 
     assert response.status_code == 503
+
+
+def test_get_sentiment_unknown_ticker_returns_404(client, mock_service):
+    mock_service.analyze.side_effect = UnknownTickerError("unknown ticker QQXYZ")
+
+    response = client.get("/api/v1/sentiment/QQXYZ")
+
+    assert response.status_code == 404
 
 
 def test_get_sentiment_no_news_returns_404(client, mock_service):

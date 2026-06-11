@@ -1,13 +1,10 @@
-"""Tests for the NewsAPI client. All HTTP traffic is mocked via httpx.MockTransport."""
+"""Tests for the NewsAPI provider. All HTTP traffic is mocked via httpx.MockTransport."""
 
 import httpx
 import pytest
 
-from app.services.sentiment.news_client import (
-    NewsAPIClient,
-    NewsAPIError,
-    NewsAPIQuotaError,
-)
+from app.services.sentiment.news.base import NewsProviderError, NewsQuotaError
+from app.services.sentiment.news.newsapi_provider import NewsAPIProvider
 
 
 def _article(i: int) -> dict:
@@ -30,9 +27,9 @@ def _ok_response(articles: list[dict]) -> httpx.Response:
     )
 
 
-def _make_client(handler, max_articles: int = 10) -> NewsAPIClient:
+def _make_provider(handler, max_articles: int = 10) -> NewsAPIProvider:
     transport = httpx.MockTransport(handler)
-    return NewsAPIClient(api_key="test-key", max_articles=max_articles, transport=transport)
+    return NewsAPIProvider(api_key="test-key", max_articles=max_articles, transport=transport)
 
 
 async def test_fetch_news_returns_articles():
@@ -42,8 +39,8 @@ async def test_fetch_news_returns_articles():
         captured["request"] = request
         return _ok_response([_article(1), _article(2)])
 
-    client = _make_client(handler)
-    articles = await client.fetch_news("AAPL")
+    provider = _make_provider(handler)
+    articles = await provider.fetch_news("AAPL")
 
     assert len(articles) == 2
     first = articles[0]
@@ -64,8 +61,8 @@ async def test_fetch_news_caps_articles_to_max():
     def handler(request: httpx.Request) -> httpx.Response:
         return _ok_response([_article(i) for i in range(1, 6)])
 
-    client = _make_client(handler, max_articles=3)
-    articles = await client.fetch_news("AAPL")
+    provider = _make_provider(handler, max_articles=3)
+    articles = await provider.fetch_news("AAPL")
 
     assert len(articles) == 3
 
@@ -81,46 +78,46 @@ async def test_fetch_news_quota_exhausted_raises_typed_error():
             },
         )
 
-    client = _make_client(handler)
-    with pytest.raises(NewsAPIQuotaError):
-        await client.fetch_news("AAPL")
+    provider = _make_provider(handler)
+    with pytest.raises(NewsQuotaError):
+        await provider.fetch_news("AAPL")
 
 
-async def test_fetch_news_http_error_raises_newsapi_error():
+async def test_fetch_news_http_error_raises_provider_error():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             401,
             json={"status": "error", "code": "apiKeyInvalid", "message": "Bad key."},
         )
 
-    client = _make_client(handler)
-    with pytest.raises(NewsAPIError):
-        await client.fetch_news("AAPL")
+    provider = _make_provider(handler)
+    with pytest.raises(NewsProviderError):
+        await provider.fetch_news("AAPL")
 
 
-async def test_fetch_news_network_error_raises_newsapi_error():
+async def test_fetch_news_network_error_raises_provider_error():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
 
-    client = _make_client(handler)
-    with pytest.raises(NewsAPIError):
-        await client.fetch_news("AAPL")
+    provider = _make_provider(handler)
+    with pytest.raises(NewsProviderError):
+        await provider.fetch_news("AAPL")
 
 
 async def test_fetch_news_empty_results():
     def handler(request: httpx.Request) -> httpx.Response:
         return _ok_response([])
 
-    client = _make_client(handler)
-    articles = await client.fetch_news("AAPL")
+    provider = _make_provider(handler)
+    articles = await provider.fetch_news("AAPL")
 
     assert articles == []
 
 
-async def test_fetch_news_invalid_json_raises_newsapi_error():
+async def test_fetch_news_invalid_json_raises_provider_error():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=b"not json")
 
-    client = _make_client(handler)
-    with pytest.raises(NewsAPIError):
-        await client.fetch_news("AAPL")
+    provider = _make_provider(handler)
+    with pytest.raises(NewsProviderError):
+        await provider.fetch_news("AAPL")

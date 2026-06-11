@@ -4,16 +4,20 @@ from functools import lru_cache
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.config import get_settings
+from app.core.finnhub import get_finnhub_client
 from app.core.neo4j import get_neo4j_driver
 from app.llm.factory import get_llm_service
 from app.models.sentiment import SentimentResult
 from app.services.sentiment.graph_retriever import GraphRetriever
-from app.services.sentiment.news_client import NewsAPIClient, NewsAPIError, NewsAPIQuotaError
+from app.services.sentiment.news.base import NewsProviderError, NewsQuotaError
+from app.services.sentiment.news.factory import get_news_provider
 from app.services.sentiment.service import (
     NoRecentNewsError,
     SentimentAnalysisError,
     SentimentService,
+    UnknownTickerError,
 )
+from app.services.sentiment.ticker_validator import TickerValidator
 
 router = APIRouter()
 
@@ -32,16 +36,14 @@ def get_sentiment_service() -> SentimentService:
     """Return the singleton SentimentService wired from settings."""
     settings = get_settings()
     return SentimentService(
-        news_client=NewsAPIClient(
-            api_key=settings.newsapi_key,
-            max_articles=settings.max_news_articles,
-        ),
+        news_client=get_news_provider(),
         graph_retriever=GraphRetriever(
             driver=get_neo4j_driver(),
             database=settings.neo4j_database,
             hop_depth=settings.graph_hop_depth,
         ),
         llm_service=get_llm_service(),
+        ticker_validator=TickerValidator(client=get_finnhub_client()),
         cache_ttl=settings.cache_ttl_sentiment,
     )
 
@@ -56,13 +58,15 @@ async def get_sentiment(
     ticker = _validate_ticker(ticker)
     try:
         return await service.analyze(ticker, force_refresh=force_refresh)
-    except NewsAPIQuotaError as exc:
+    except NewsQuotaError as exc:
         raise HTTPException(
-            status_code=503, detail="News provider daily quota exhausted; try again later"
+            status_code=503, detail="News providers' quota exhausted; try again later"
         ) from exc
+    except UnknownTickerError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except NoRecentNewsError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except SentimentAnalysisError as exc:
         raise HTTPException(status_code=502, detail="Sentiment analysis failed") from exc
-    except NewsAPIError as exc:
+    except NewsProviderError as exc:
         raise HTTPException(status_code=502, detail="News provider request failed") from exc

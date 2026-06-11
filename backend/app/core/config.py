@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5.4-mini"
     openai_embedding_model: str = "text-embedding-3-large"
 
+    # News provider chain head (the other provider acts as fallback)
+    news_provider: Literal["finnhub", "newsapi"] = "finnhub"
+
     # External services
     neo4j_uri: str = ""
     neo4j_username: str = ""

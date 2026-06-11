@@ -288,9 +288,10 @@ cuatro módulos de análisis y presentando el resultado en español.
 ### 3.4 Módulos funcionales
 
 **Módulo 1 — Análisis de Sentimiento (GraphRAG)**
-- Flujo: NewsAPI → embeddings semánticos → búsqueda Neo4j (k-hop, k=2) → OpenAI LLM
+- Flujo: Finnhub company_news (fallback: NewsAPI) → embeddings semánticos → búsqueda Neo4j (k-hop, k=2) → OpenAI LLM
+- Noticias vía cadena de proveedores (Adapter + Chain of Responsibility, ver [ADR-0005](docs/adr/0005-news-provider-fallback-chain.md)): Finnhub primario (sin delay, solo Norteamérica), NewsAPI detrás (universal, 24 h de delay); `NEWS_PROVIDER` elige la cabeza de la cadena
 - Salida: `{label, score[-1,1], confidence[0,1], explanation, influential_news[{title,url}]}`
-- Caché: TTL configurable (por defecto 30 min) — NewsAPI tiene límite de 100 req/día
+- Caché: TTL configurable (por defecto 30 min) — protege las cuotas de ambos proveedores
 
 **Módulo 2 — Deep Learning (LSTM + VMD)**
 - Flujo: datos EOD Finnhub → preprocesamiento VMD (mismos params del entrenamiento) → LSTM → tendencia
@@ -351,6 +352,9 @@ NEO4J_PASSWORD=
 NEWSAPI_KEY=
 FINNHUB_API_KEY=
 
+# Noticias (proveedor primario; el otro actúa como fallback)
+NEWS_PROVIDER=finnhub                  # finnhub | newsapi
+
 # Aplicación
 FRONTEND_URL=http://localhost:5173
 ENVIRONMENT=development                # development | production
@@ -373,7 +377,8 @@ LRU_CACHE_MAX_MODELS=10
 |-------------|---------|------------|
 | Sin GPU en producción (Render free tier) | Inferencia LSTM en CPU, mayor latencia | Caché LRU de modelos; informar al usuario del tiempo estimado |
 | Render se "duerme" tras 15 min de inactividad | Cold start de 30–60 s | Petición de calentamiento previa a la demo del TFG |
-| NewsAPI: 100 req/día en free tier | Agotamiento fácil con múltiples usuarios | Caché agresiva con TTL de 30 min por empresa |
+| Finnhub (noticias, primario): 60 req/min, solo Norteamérica | Sin noticias frescas para tickers no norteamericanos | Cadena de fallback a NewsAPI (ADR-0005) |
+| NewsAPI (noticias, fallback): 100 req/día y 24 h de delay | Agotamiento fácil; noticias no inmediatas | Solo recibe tickers que Finnhub no cubre + caché TTL 30 min |
 | Datos solo EOD (no tiempo real intradía) | No se puede hacer análisis intradiario | Todo el análisis de precio se basa en datos de cierre |
 | Modelos LSTM solo para acciones del Nasdaq | Soporte parcial para otras acciones | Informar al usuario con RF-27; documentado en la memoria |
 | Procesamiento interno en inglés | Noticias, embeddings y prompts en inglés | Prompt engineering explícito para respuestas en español |
@@ -383,7 +388,7 @@ LRU_CACHE_MAX_MODELS=10
 
 - **HTTPS obligatorio** en producción (certificado automático de Render).
 - **Rate limiting** en los endpoints de análisis (prevenir abuso y agotamiento de cuotas).
-- **Validación del parámetro ticker**: alfanumérico, 2–5 caracteres, mayúsculas.
+- **Validación del parámetro ticker**: alfanumérico, 2–5 caracteres, mayúsculas; además, comprobación de existencia contra Finnhub symbol lookup (match exacto, cacheada, fail-open) antes de buscar noticias.
 - **CORS** configurado para aceptar solo el dominio del frontend en producción.
 - **XSS**: escapar todo contenido generado por el LLM antes de renderizarlo en el DOM.
 - **Claves API**: nunca en el código fuente ni en el repositorio. Solo variables de entorno.

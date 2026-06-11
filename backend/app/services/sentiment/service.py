@@ -11,7 +11,8 @@ from app.llm.base import LLMService
 from app.llm.embeddings import embed_texts
 from app.models.sentiment import NewsItem, SentimentResult
 from app.services.sentiment.graph_retriever import GraphRetriever, RetrievedNews
-from app.services.sentiment.news_client import NewsAPIClient, NewsArticle
+from app.services.sentiment.news.base import NewsArticle, NewsProvider
+from app.services.sentiment.ticker_validator import TickerValidator
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,10 @@ class SentimentAnalysisError(Exception):
 
 class NoRecentNewsError(SentimentAnalysisError):
     """Raised when no recent news is found for the requested ticker."""
+
+
+class UnknownTickerError(SentimentAnalysisError):
+    """Raised when the ticker does not match any listed symbol."""
 
 
 def _format_news(articles: list[NewsArticle]) -> str:
@@ -99,20 +104,23 @@ class SentimentService:
 
     def __init__(
         self,
-        news_client: NewsAPIClient,
+        news_client: NewsProvider,
         graph_retriever: GraphRetriever,
         llm_service: LLMService,
+        ticker_validator: TickerValidator,
         cache_ttl: int,
     ) -> None:
         """Args:
-        news_client: Client for fetching recent news.
+        news_client: Provider (or chain of providers) for fetching recent news.
         graph_retriever: GraphRAG retriever over the knowledge graph.
         llm_service: LLM provider used for the final classification.
+        ticker_validator: Existence check for the requested ticker.
         cache_ttl: Seconds a result stays cached per ticker.
         """
         self._news_client = news_client
         self._graph_retriever = graph_retriever
         self._llm = llm_service
+        self._ticker_validator = ticker_validator
         self._cache: TTLCache[str, SentimentResult] = TTLCache(
             maxsize=_CACHE_MAX_TICKERS, ttl=cache_ttl
         )
@@ -129,13 +137,17 @@ class SentimentService:
             the list of most influential news articles.
 
         Raises:
+            UnknownTickerError: If the ticker does not match any listed symbol.
             NoRecentNewsError: If no recent news is found for the ticker.
             SentimentAnalysisError: If the LLM cannot produce a valid result.
-            NewsAPIQuotaError: If the NewsAPI daily quota is exhausted.
+            NewsQuotaError: If every news provider's quota is exhausted.
         """
         if not force_refresh and ticker in self._cache:
             logger.info("Sentiment cache hit for %s", ticker)
             return self._cache[ticker]
+
+        if not await self._ticker_validator.exists(ticker):
+            raise UnknownTickerError(f"Ticker {ticker} does not match any listed symbol")
 
         articles = await self._news_client.fetch_news(ticker)
         if not articles:

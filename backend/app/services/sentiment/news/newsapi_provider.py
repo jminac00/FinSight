@@ -1,9 +1,20 @@
-"""Async NewsAPI client for fetching recent news about a stock ticker."""
+"""NewsAPI.org provider: keyword search over the /v2/everything endpoint.
+
+Free-tier limitations: articles are delayed 24 hours and the quota is
+100 requests/day, so this provider acts as the universal fallback behind
+Finnhub in the provider chain.
+"""
 
 import logging
-from dataclasses import dataclass
 
 import httpx
+
+from app.services.sentiment.news.base import (
+    NewsArticle,
+    NewsProvider,
+    NewsProviderError,
+    NewsQuotaError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -11,27 +22,8 @@ _BASE_URL = "https://newsapi.org/v2/everything"
 _TIMEOUT_SECONDS = 15.0
 
 
-class NewsAPIError(Exception):
-    """Raised when NewsAPI returns an error or is unreachable."""
-
-
-class NewsAPIQuotaError(NewsAPIError):
-    """Raised when the NewsAPI daily request quota is exhausted (HTTP 429)."""
-
-
-@dataclass
-class NewsArticle:
-    """A news article as returned by NewsAPI."""
-
-    title: str
-    url: str
-    source: str
-    published_at: str
-    description: str
-
-
-class NewsAPIClient:
-    """Fetches recent English-language news for a ticker via the /v2/everything endpoint."""
+class NewsAPIProvider(NewsProvider):
+    """Fetches recent English-language news for a ticker via NewsAPI.org."""
 
     def __init__(
         self,
@@ -49,18 +41,7 @@ class NewsAPIClient:
         self._transport = transport
 
     async def fetch_news(self, ticker: str) -> list[NewsArticle]:
-        """Return the most recent news articles mentioning the ticker.
-
-        Args:
-            ticker: Uppercase stock symbol (e.g. 'AAPL').
-
-        Returns:
-            Up to max_articles articles, newest first.
-
-        Raises:
-            NewsAPIQuotaError: If the daily request quota is exhausted.
-            NewsAPIError: On any other HTTP, network or payload error.
-        """
+        """Return the most recent news articles mentioning the ticker."""
         params = {
             "q": ticker,
             "language": "en",
@@ -73,18 +54,20 @@ class NewsAPIClient:
             try:
                 response = await client.get(_BASE_URL, params=params, headers=headers)
             except httpx.HTTPError as exc:
-                raise NewsAPIError(f"NewsAPI request failed: {exc}") from exc
+                raise NewsProviderError(f"NewsAPI request failed: {exc}") from exc
 
         if response.status_code == 429:
             logger.warning("NewsAPI daily quota exhausted for ticker %s", ticker)
-            raise NewsAPIQuotaError("NewsAPI daily request quota exhausted")
+            raise NewsQuotaError("NewsAPI daily request quota exhausted")
         if response.status_code != 200:
-            raise NewsAPIError(f"NewsAPI returned HTTP {response.status_code}: {response.text}")
+            raise NewsProviderError(
+                f"NewsAPI returned HTTP {response.status_code}: {response.text}"
+            )
 
         try:
             payload = response.json()
         except ValueError as exc:
-            raise NewsAPIError("NewsAPI returned a non-JSON response") from exc
+            raise NewsProviderError("NewsAPI returned a non-JSON response") from exc
 
         articles = payload.get("articles", [])[: self._max_articles]
         return [
