@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
+from app.core.neo4j import close_neo4j_driver
 from app.scheduler.jobs import start_scheduler, stop_scheduler
 
 logging.basicConfig(
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
     start_scheduler()
     yield
     stop_scheduler()
+    close_neo4j_driver()
     logger.info("FinSight backend stopped")
 
 
