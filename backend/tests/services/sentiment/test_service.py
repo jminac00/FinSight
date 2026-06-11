@@ -8,11 +8,12 @@ import pytest
 from app.models.sentiment import SentimentResult
 from app.services.sentiment import service as service_mod
 from app.services.sentiment.graph_retriever import RetrievedNews
-from app.services.sentiment.news_client import NewsArticle
+from app.services.sentiment.news.base import NewsArticle
 from app.services.sentiment.service import (
     NoRecentNewsError,
     SentimentAnalysisError,
     SentimentService,
+    UnknownTickerError,
 )
 
 _LLM_RESPONSE = json.dumps(
@@ -52,6 +53,7 @@ def _retrieved() -> RetrievedNews:
 def _make_service(
     articles: list[NewsArticle] | None = None,
     llm_responses: list[str] | None = None,
+    ticker_exists: bool = True,
 ) -> SentimentService:
     news_client = MagicMock()
     news_client.fetch_news = AsyncMock(return_value=articles if articles is not None else [])
@@ -62,10 +64,14 @@ def _make_service(
     llm = MagicMock()
     llm.complete = AsyncMock(side_effect=llm_responses or [_LLM_RESPONSE])
 
+    validator = MagicMock()
+    validator.exists = AsyncMock(return_value=ticker_exists)
+
     return SentimentService(
         news_client=news_client,
         graph_retriever=retriever,
         llm_service=llm,
+        ticker_validator=validator,
         cache_ttl=1800,
     )
 
@@ -134,6 +140,15 @@ async def test_analyze_raises_when_no_news_found():
 
     with _patch_embeddings(), pytest.raises(NoRecentNewsError):
         await service.analyze("AAPL")
+
+
+async def test_unknown_ticker_raises_before_fetching_news():
+    service = _make_service(articles=[_article(0)], ticker_exists=False)
+
+    with _patch_embeddings(), pytest.raises(UnknownTickerError):
+        await service.analyze("QQXYZ")
+
+    service._news_client.fetch_news.assert_not_awaited()
 
 
 async def test_malformed_llm_output_retries_once_then_raises():
