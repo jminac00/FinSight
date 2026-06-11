@@ -67,6 +67,7 @@ Criterios débiles ("que funcione") exigen aclaraciones constantes.
 
 ### 1.5 Convenciones de código del proyecto
 
+- **Idioma del código: inglés**. Todo el código del repositorio debe ser comprensible íntegramente en inglés: nombres de ficheros, variables, funciones, clases, comentarios, docstrings, mensajes de log y de commit. La interfaz de usuario y el informe final, en cambio, se presentan en español (es contenido de producto, no código).
 - **Python**: PEP 8, type hints en todas las funciones, docstrings en funciones y clases públicas.
 - **Async**: usar `async`/`await` en FastAPI siempre que sea posible.
 - **Frontend**: componentes funcionales React con hooks. Sin class components.
@@ -165,7 +166,7 @@ cuatro módulos de análisis y presentando el resultado en español.
 
 | Capa | Tecnología | Notas |
 |------|-----------|-------|
-| Frontend | React 18 + Vite + Tailwind CSS | SPA, desplegada en Vercel |
+| Frontend | React 18 + Vite + Tailwind CSS | SPA, desplegada en Render |
 | Backend | FastAPI (Python 3.11+) | Desplegado en Render (free tier, sin GPU) |
 | BD grafos | Neo4j AuraDB free tier (512 MB) | Módulo de sentimiento (GraphRAG) |
 | GraphRAG lib | neo4j-graphrag (Python) | Retrieval vectorial sobre Neo4j |
@@ -177,8 +178,7 @@ cuatro módulos de análisis y presentando el resultado en español.
 | Scheduler | APScheduler embebido en FastAPI | Reentrenamiento diario automático |
 | Config | pydantic-settings + variables de entorno | Nunca valores hardcodeados |
 | Gestión de deps | uv | `pyproject.toml` + `uv.lock` commiteado; nunca `pip` directo |
-| Hosting frontend | Vercel (gratuito) | Deploys automáticos desde Git |
-| Hosting backend | Render (gratuito) | Free tier Python, acepta ficheros .pt |
+| Hosting | Render (gratuito) | Frontend y backend en la misma plataforma; deploys automáticos desde Git; acepta ficheros .pt |
 | Control de versiones | Git / GitHub | Repositorio compartido |
 
 ### 3.3 Estructura de carpetas
@@ -268,6 +268,9 @@ cuatro módulos de análisis y presentando el resultado en español.
 │   ├── pyproject.toml         # Dependencias (fuente de verdad)
 │   └── uv.lock                # Lockfile commiteado en git
 │
+├── docs/                      # Documentación del proyecto
+│   └── adr/                   # Architecture Decision Records (decisiones de diseño)
+│
 ├── data/                      # CSVs históricos OHLC para Deep Learning (en .gitignore)
 ├── notebooks/                 # Jupyter notebooks de entrenamiento
 ├── .gitignore
@@ -276,6 +279,11 @@ cuatro módulos de análisis y presentando el resultado en español.
 ├── README.md
 └── CLAUDE.md
 ```
+
+> El documento de requisitos (SRS, IEEE 830) es **privado y está en constante
+> cambio**, por lo que no forma parte del repositorio (está en `.gitignore`). Las
+> decisiones de diseño que introducen sus revisiones se registran como ADRs en
+> [`docs/adr/`](docs/adr/).
 
 ### 3.4 Módulos funcionales
 
@@ -373,7 +381,7 @@ LRU_CACHE_MAX_MODELS=10
 
 ### 3.8 Restricciones de seguridad y calidad
 
-- **HTTPS obligatorio** en producción (certificado automático por Vercel/Render).
+- **HTTPS obligatorio** en producción (certificado automático de Render).
 - **Rate limiting** en los endpoints de análisis (prevenir abuso y agotamiento de cuotas).
 - **Validación del parámetro ticker**: alfanumérico, 2–5 caracteres, mayúsculas.
 - **CORS** configurado para aceptar solo el dominio del frontend en producción.
@@ -381,6 +389,7 @@ LRU_CACHE_MAX_MODELS=10
 - **Claves API**: nunca en el código fuente ni en el repositorio. Solo variables de entorno.
 - **WCAG 2.1 nivel AA**: estándar legal en España; se valora positivamente en el TFG.
 - **Disclaimer legal**: visible de forma permanente en la interfaz (RF-06) y en el informe (RF-37).
+- **Cookies y consentimiento (LSSI-CE art. 22, AEPD)**: banner de consentimiento granular por categoría (estrictamente necesarias, funcionales, analíticas); el consentimiento aplica a cualquier almacenamiento en cliente (cookies, `localStorage`, `sessionStorage`, `IndexedDB`). Ver [ADR-0002](docs/adr/0002-cookie-consent-management.md).
 
 ---
 
