@@ -69,9 +69,7 @@ class NewsAPIClient:
         }
         headers = {"X-Api-Key": self._api_key}
 
-        async with httpx.AsyncClient(
-            transport=self._transport, timeout=_TIMEOUT_SECONDS
-        ) as client:
+        async with httpx.AsyncClient(transport=self._transport, timeout=_TIMEOUT_SECONDS) as client:
             try:
                 response = await client.get(_BASE_URL, params=params, headers=headers)
             except httpx.HTTPError as exc:
