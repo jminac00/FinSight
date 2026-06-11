@@ -112,12 +112,20 @@ Copia `backend/.env.example` a `backend/.env` y rellena los valores:
 
 ---
 
-## Despliegue en Render (backend)
+## Despliegue en Render
 
-Configurar en el dashboard de Render:
+Tanto el frontend como el backend se despliegan en Render (free tier), con deploys
+automáticos desde Git y HTTPS con certificado automático.
+
+**Backend (Web Service):**
 
 - **Build command:** `pip install uv && uv sync --no-dev --frozen`
 - **Start command:** `uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+**Frontend (Static Site):**
+
+- **Build command:** `npm install && npm run build`
+- **Publish directory:** `dist`
 
 ---
 
@@ -138,6 +146,8 @@ Configurar en el dashboard de Render:
 │   ├── ml_models/     # Ficheros .pt y .json por ticker
 │   ├── pyproject.toml # Dependencias (fuente de verdad)
 │   └── uv.lock        # Lockfile (commiteado en git)
+├── docs/              # Documentación del proyecto
+│   └── adr/           # Architecture Decision Records
 ├── data/              # CSVs históricos OHLC (en .gitignore)
 └── notebooks/         # Jupyter notebooks de entrenamiento
 ```
