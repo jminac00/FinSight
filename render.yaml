@@ -23,8 +23,6 @@ services:
         value: text-embedding-3-large
       - key: NEWS_PROVIDER
         value: finnhub
-      - key: NEO4J_DATABASE
-        value: neo4j
       - key: CACHE_TTL_SENTIMENT
         value: "1800"
       - key: CACHE_TTL_FUNDAMENTAL
@@ -51,6 +49,9 @@ services:
       - key: NEO4J_USERNAME
         sync: false
       - key: NEO4J_PASSWORD
+        sync: false
+      # AuraDB database name (instance-specific; equals the instance id, NOT "neo4j").
+      - key: NEO4J_DATABASE
         sync: false
       # Public URL of the frontend static site (CORS allow-origin).
       # Set after the frontend deploys, e.g. https://finsight-frontend.onrender.com
