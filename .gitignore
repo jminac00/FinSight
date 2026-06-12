@@ -207,3 +207,12 @@ frontend/dist/
 # Jupyter checkpoints
 notebooks/.ipynb_checkpoints/
 .ipynb_checkpoints/
+
+# Local research material (third-party cloned repos, scratch experiments, env dumps)
+notebooks/TFG_JaviMiñambres/
+
+# Benchmark VMD decomposition cache
+notebooks/.cache/
+
+# Windows / cloud-sync artifacts
+desktop.ini
