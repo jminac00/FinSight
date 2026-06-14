@@ -18,7 +18,15 @@ import pandas as pd
 import torch
 
 from benchmark import baselines, metrics
-from benchmark.data import FEATURES, WindowDataset, build_windows, chrono_split, load_ohlc, split_bounds
+from benchmark.data import (
+    FEATURES,
+    WindowDataset,
+    build_windows,
+    chrono_split,
+    engineered_features,
+    load_ohlc,
+    split_bounds,
+)
 from benchmark.models import RNNRegressor, TransformerRegressor, count_params, predict, train_model
 from benchmark.vmd import causal_vmd_modes
 
@@ -60,6 +68,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--k", type=int, default=6, help="number of VMD modes")
     parser.add_argument("--alpha", type=float, default=2000.0, help="VMD bandwidth penalty")
     parser.add_argument("--decomp-len", type=int, default=512, help="causal VMD decomposition window")
+    parser.add_argument(
+        "--feature-set",
+        choices=["ohl", "rbg"],
+        default="ohl",
+        help="auxiliary features for VMD models: raw open/high/low (ohl) or range/body/gap (rbg)",
+    )
     parser.add_argument("--max-epochs", type=int, default=100)
     parser.add_argument("--quick", action="store_true", help=f"last {QUICK_ROWS} rows, 15 epochs max")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -100,9 +114,13 @@ def main() -> None:
             cache_dir=NOTEBOOKS_DIR / ".cache",
             ticker=ticker,
         )
-        ohl = build_windows(features[:, :3], close, df.index, args.lookback, args.horizon, t_start)
+        if args.feature_set == "rbg":
+            aux_matrix = engineered_features(features)
+        else:
+            aux_matrix = features[:, :3]  # raw open, high, low
+        aux = build_windows(aux_matrix, close, df.index, args.lookback, args.horizon, t_start)
         datasets["vmd"] = WindowDataset(
-            X=np.concatenate([modes, ohl.X], axis=2), y=raw_ds.y, t_index=raw_ds.t_index
+            X=np.concatenate([modes, aux.X], axis=2), y=raw_ds.y, t_index=raw_ds.t_index
         )
 
     n = len(raw_ds.y)
@@ -143,12 +161,15 @@ def main() -> None:
 
     table = pd.DataFrame(rows).round(4)
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    suffix = "_quick" if args.quick else ""
-    out_file = args.out_dir / f"{ticker}_benchmark{suffix}.csv"
+    quick_suffix = "_quick" if args.quick else ""
+    out_file = args.out_dir / f"{ticker}_benchmark_{args.feature_set}{quick_suffix}.csv"
     table.to_csv(out_file, index=False)
 
     print()
-    print(f"# {ticker} — {args.horizon}-day return benchmark (threshold ±{args.threshold}%)")
+    print(
+        f"# {ticker} — {args.horizon}-day return benchmark "
+        f"(threshold ±{args.threshold}%, feature set: {args.feature_set})"
+    )
     print(table.to_markdown(index=False))
     print(f"\nSaved to {out_file}")
 

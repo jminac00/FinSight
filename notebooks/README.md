@@ -26,7 +26,13 @@ Trains and evaluates every candidate model on identical, leakage-free samples:
   boundaries so no target window spans two partitions.
 - **Models**: zero-return naive (random walk), momentum, ARIMA(1,1,1) with
   drift (walk-forward), LSTM, GRU, Transformer encoder, and the same three
-  networks on VMD features (modes of close + OHL).
+  networks on VMD features (modes of close + auxiliary features).
+- **Auxiliary feature set** for the VMD models, selected with `--feature-set`:
+  - `ohl` (default): raw open/high/low levels.
+  - `rbg`: engineered intraday features — range `(high-low)/close`, body
+    `(close-open)/close`, gap `(open-prev_close)/prev_close`. These capture
+    the information OHL carry beyond the close, which the raw levels barely do
+    (open, high, low and close are ~99% correlated day to day).
 - **Metrics**: RMSE/MAE on the 10-day return (%), directional accuracy,
   3-class trend accuracy and macro F1, parameter count, wall time.
 
@@ -55,7 +61,15 @@ uv run python -m benchmark.run --ticker AAPL --quick
 
 # Subset of models
 uv run python -m benchmark.run --ticker AAPL --models naive,arima,lstm,gru
+
+# Compare auxiliary feature sets for the VMD models on the same ticker
+uv run python -m benchmark.run --ticker AAPL --feature-set ohl
+uv run python -m benchmark.run --ticker AAPL --feature-set rbg
 ```
+
+Output is written to `results/{TICKER}_benchmark_{feature_set}.csv`, so the two
+feature sets coexist for comparison. The VMD cache does not depend on the
+feature set, so the second run reuses it and only retrains the networks.
 
 First full run per ticker computes one VMD decomposition per sample
 (~30 min for a long history); results are cached in `.cache/` and reruns are

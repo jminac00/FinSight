@@ -49,6 +49,27 @@ def future_return(close: np.ndarray, horizon: int) -> np.ndarray:
     return (close[horizon:] - close[:-horizon]) / close[:-horizon] * 100.0
 
 
+def engineered_features(ohlc: np.ndarray) -> np.ndarray:
+    """Causal intraday features derived from OHLC columns [open, high, low, close].
+
+    Captures the information OHL carry beyond the close, which the raw levels
+    barely do (open, high, low and close are ~99% correlated day to day):
+
+    - range = (high - low) / close   intraday volatility proxy
+    - body  = (close - open) / close  intraday direction
+    - gap   = (open - prev_close) / prev_close  overnight gap (0 on day 0)
+
+    Each row uses only data up to its own day t (gap uses the previous close),
+    so the output is causal. Returns an array of shape (n, 3).
+    """
+    open_, high, low, close = ohlc[:, 0], ohlc[:, 1], ohlc[:, 2], ohlc[:, 3]
+    rng = (high - low) / close
+    body = (close - open_) / close
+    gap = np.zeros_like(close)
+    gap[1:] = (open_[1:] - close[:-1]) / close[:-1]
+    return np.stack([rng, body, gap], axis=1).astype(np.float32)
+
+
 def build_windows(
     features: np.ndarray,
     close: np.ndarray,
