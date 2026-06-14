@@ -27,7 +27,14 @@ from benchmark.data import (
     load_ohlc,
     split_bounds,
 )
-from benchmark.models import RNNRegressor, TransformerRegressor, count_params, predict, train_model
+from benchmark.models import (
+    RNNRegressor,
+    TransformerRegressor,
+    VMDMultiBranchRegressor,
+    count_params,
+    predict,
+    train_model,
+)
 from benchmark.vmd import causal_vmd_modes
 
 logger = logging.getLogger(__name__)
@@ -45,15 +52,19 @@ ALL_MODELS = [
     "vmd-lstm",
     "vmd-gru",
     "vmd-transformer",
+    "vmd-lstm-mb",
+    "vmd-gru-mb",
 ]
 QUICK_ROWS = 1800
 SEED = 42
 
 
-def make_network(kind: str, n_features: int, lookback: int) -> torch.nn.Module:
+def make_network(kind: str, n_features: int, lookback: int, n_modes: int = 0) -> torch.nn.Module:
     """Instantiate a network with the shared benchmark hyperparameters."""
     if kind == "transformer":
         return TransformerRegressor(n_features, seq_len=lookback)
+    if kind.endswith("-mb"):
+        return VMDMultiBranchRegressor(n_features, n_modes=n_modes, rnn_type=kind.removesuffix("-mb"))
     return RNNRegressor(n_features, rnn_type=kind)
 
 
@@ -146,7 +157,7 @@ def main() -> None:
             kind = name.removeprefix("vmd-")
             ds = datasets["vmd" if name.startswith("vmd-") else "raw"]
             train, val, test = chrono_split(ds, gap=gap)
-            model = make_network(kind, ds.X.shape[2], args.lookback)
+            model = make_network(kind, ds.X.shape[2], args.lookback, n_modes=args.k)
             train_model(
                 model, train.X, train.y, val.X, val.y,
                 max_epochs=max_epochs, seed=SEED, device=args.device,

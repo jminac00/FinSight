@@ -44,6 +44,67 @@ class RNNRegressor(nn.Module):
         return self.head(out[:, -1, :]).squeeze(-1)
 
 
+class VMDMultiBranchRegressor(nn.Module):
+    """One recurrent branch per VMD mode, joined by a shared dense head.
+
+    The first ``n_modes`` input channels are the VMD modes; each gets its own
+    single-channel RNN branch. The remaining channels (auxiliary features) share
+    one extra branch. The branches' last hidden states are concatenated and a
+    small dense head predicts the direct horizon return. This is the
+    leakage-free, direct-target version of the classic "one model per mode" VMD
+    scheme: branches are trained end-to-end toward the return instead of
+    reconstructing each mode independently and summing.
+    """
+
+    def __init__(
+        self,
+        input_size: int,
+        n_modes: int,
+        rnn_type: str = "gru",
+        hidden_size: int = 24,
+        num_layers: int = 1,
+        dense_units: int = 32,
+        dropout: float = 0.2,
+    ) -> None:
+        super().__init__()
+        if not 0 < n_modes <= input_size:
+            raise ValueError(f"n_modes={n_modes} must be in (0, input_size={input_size}]")
+        self.n_modes = n_modes
+        self.n_aux = input_size - n_modes
+        rnn_cls = {"lstm": nn.LSTM, "gru": nn.GRU}[rnn_type]
+
+        def branch(in_channels: int) -> nn.Module:
+            return rnn_cls(
+                in_channels,
+                hidden_size,
+                num_layers,
+                batch_first=True,
+                dropout=dropout if num_layers > 1 else 0.0,
+            )
+
+        self.mode_branches = nn.ModuleList(branch(1) for _ in range(n_modes))
+        self.aux_branch = branch(self.n_aux) if self.n_aux > 0 else None
+
+        n_branches = n_modes + (1 if self.n_aux > 0 else 0)
+        self.head = nn.Sequential(
+            nn.Linear(hidden_size * n_branches, dense_units),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(dense_units, 1),
+        )
+
+    @staticmethod
+    def _last_hidden(rnn: nn.Module, x: torch.Tensor) -> torch.Tensor:
+        out, _ = rnn(x)
+        return out[:, -1, :]
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        feats = [self._last_hidden(b, x[:, :, i : i + 1]) for i, b in enumerate(self.mode_branches)]
+        if self.aux_branch is not None:
+            feats.append(self._last_hidden(self.aux_branch, x[:, :, self.n_modes :]))
+        return self.head(torch.cat(feats, dim=1)).squeeze(-1)
+
+
 class TransformerRegressor(nn.Module):
     """Transformer-encoder regressor with learned positional embeddings."""
 
