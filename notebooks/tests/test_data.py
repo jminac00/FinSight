@@ -4,7 +4,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from benchmark.data import WindowDataset, build_windows, chrono_split, future_return
+from benchmark.data import (
+    WindowDataset,
+    build_windows,
+    chrono_split,
+    engineered_features,
+    future_return,
+)
 
 
 def _synthetic(n: int = 120) -> tuple[np.ndarray, np.ndarray, pd.DatetimeIndex]:
@@ -88,3 +94,37 @@ def test_chrono_split_gap() -> None:
     assert val.y[-1] == i2 - 1
     assert test.y[0] == i2 + gap
     assert test.y[-1] == n - 1
+
+
+def test_engineered_features_values() -> None:
+    # rows are [open, high, low, close]
+    ohlc = np.array(
+        [
+            [10.0, 13.0, 9.0, 12.0],
+            [12.0, 14.0, 11.0, 13.0],
+            [15.0, 16.0, 13.0, 14.0],
+        ]
+    )
+    feats = engineered_features(ohlc)
+    assert feats.shape == (3, 3)
+
+    rng, body, gap = feats[:, 0], feats[:, 1], feats[:, 2]
+    # range = (high - low) / close
+    np.testing.assert_allclose(rng, [4 / 12, 3 / 13, 3 / 14], rtol=1e-6)
+    # body = (close - open) / close  (positive and negative directions)
+    np.testing.assert_allclose(body, [2 / 12, 1 / 13, -1 / 14], rtol=1e-6)
+    # gap = (open - prev_close) / prev_close, first day has no previous close
+    np.testing.assert_allclose(gap, [0.0, (12 - 12) / 12, (15 - 13) / 13], rtol=1e-6)
+
+
+def test_engineered_features_is_causal() -> None:
+    features, _, _ = _synthetic()
+    feats = engineered_features(features)
+
+    t = 40
+    features2 = features.copy()
+    features2[t + 1 :] *= 5.0
+    feats2 = engineered_features(features2)
+
+    # Row t depends only on rows t and t-1, never on the future.
+    np.testing.assert_allclose(feats[: t + 1], feats2[: t + 1])
