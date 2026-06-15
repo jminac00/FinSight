@@ -9,7 +9,7 @@ _scheduler = AsyncIOScheduler(timezone="Europe/Madrid")
 
 
 async def daily_model_update() -> None:
-    """Retrain all available LSTM models with the latest EOD market data.
+    """Retrain all available GRU models with the latest EOD market data.
 
     Runs daily at 22:00 CET, after the US market close.
     Uses exclusively real market data — never model-generated predictions.
@@ -17,7 +17,7 @@ async def daily_model_update() -> None:
     """
     # TODO: list all .pt files in ml_models/
     # TODO: for each ticker, fetch latest EOD data from Finnhub
-    # TODO: run incremental retraining pipeline (VMD prepro → LSTM train)
+    # TODO: refit the GRU on the updated history (frozen recipe)
     # TODO: replace old .pt and update .json metadata
     # TODO: log success/failure per ticker with updated metrics
     logger.info("daily_model_update triggered — implementation pending")
