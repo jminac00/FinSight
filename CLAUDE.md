@@ -141,6 +141,13 @@ test(api): add contract tests for report endpoint
 fix(deep-learning): handle missing model file gracefully
 ```
 
+**Granularidad de commits:**
+- No agrupar todos los cambios de una rama en un único commit. Dividir el trabajo en
+  commits pequeños, agrupados por objetivo o funcionalidad.
+- Cada commit debe explicar **un solo cambio** coherente.
+- Ejemplo: si en una rama se escriben los tests y después se implementa la
+  funcionalidad, hacer dos commits (uno `test(...)` y otro `feat(...)`), no uno solo.
+
 **Reglas absolutas para commits, issues y PRs:**
 - Escritos en **inglés**.
 - **Sin ninguna referencia a herramientas de IA, modelos de lenguaje o asistentes de IA** de ningún tipo. El texto debe leerse como si lo hubiera escrito el desarrollador.
