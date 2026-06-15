@@ -181,7 +181,7 @@ cuatro módulos de análisis y presentando el resultado en español.
 | LLM alternativo | Groq API — Llama 3.1 70B | Fallback gratuito (`LLM_PROVIDER=groq`) |
 | LLM desarrollo | Ollama local — Llama 3.1 8B | RTX 4060, offline (`LLM_PROVIDER=ollama`) |
 | Embeddings | OpenAI — text-embedding-3-large | 3 072 dims, vector index en Neo4j |
-| ML | PyTorch — modelos LSTM por ticker | Ficheros .pt + .json de metadatos |
+| ML | PyTorch — modelos GRU por ticker | Ficheros .pt + .json de metadatos |
 | Scheduler | APScheduler embebido en FastAPI | Reentrenamiento diario automático |
 | Config | pydantic-settings + variables de entorno | Nunca valores hardcodeados |
 | Gestión de deps | uv | `pyproject.toml` + `uv.lock` commiteado; nunca `pip` directo |
@@ -300,9 +300,10 @@ cuatro módulos de análisis y presentando el resultado en español.
 - Salida: `{label, score[-1,1], confidence[0,1], explanation, influential_news[{title,url}]}`
 - Caché: TTL configurable (por defecto 30 min) — protege las cuotas de ambos proveedores
 
-**Módulo 2 — Deep Learning (LSTM + VMD)**
-- Flujo: datos EOD Finnhub → preprocesamiento VMD (mismos params del entrenamiento) → LSTM → tendencia
-- Salida: `{trend, predicted_price, current_price, pct_change, horizon_days, metrics{rmse,mae,mape,r2}, trained_at}`
+**Módulo 2 — Deep Learning (GRU)**
+- Flujo: datos EOD Finnhub → ventana lookback → GRU → retorno a 10 días → tendencia (banda neutral). Decisión de arquitectura en [ADR-0006](docs/adr/0006-gru-architecture-no-vmd.md)
+- Salida: `{trend (alcista|bajista|neutral), predicted_return_pct, predicted_price (derivado), current_price, horizon_days, metrics{rmse,mae,directional_accuracy}, trained_at}`
+- Receta congelada (`notebooks/results/optuna/gru_frozen_config.json`); reentrenamiento de pesos por ticker
 - Lazy loading de modelos .pt con caché LRU (máx. configurable, por defecto 10 modelos)
 - Actualización diaria automática vía APScheduler (~22:00 CET) con datos reales únicamente
 
@@ -382,12 +383,12 @@ LRU_CACHE_MAX_MODELS=10
 
 | Restricción | Impacto | Estrategia |
 |-------------|---------|------------|
-| Sin GPU en producción (Render free tier) | Inferencia LSTM en CPU, mayor latencia | Caché LRU de modelos; informar al usuario del tiempo estimado |
+| Sin GPU en producción (Render free tier) | Inferencia GRU en CPU, mayor latencia | Caché LRU de modelos; informar al usuario del tiempo estimado |
 | Render se "duerme" tras 15 min de inactividad | Cold start de 30–60 s | Petición de calentamiento previa a la demo del TFG |
 | Finnhub (noticias, primario): 60 req/min, solo Norteamérica | Sin noticias frescas para tickers no norteamericanos | Cadena de fallback a NewsAPI (ADR-0005) |
 | NewsAPI (noticias, fallback): 100 req/día y 24 h de delay | Agotamiento fácil; noticias no inmediatas | Solo recibe tickers que Finnhub no cubre + caché TTL 30 min |
 | Datos solo EOD (no tiempo real intradía) | No se puede hacer análisis intradiario | Todo el análisis de precio se basa en datos de cierre |
-| Modelos LSTM solo para acciones del Nasdaq | Soporte parcial para otras acciones | Informar al usuario con RF-27; documentado en la memoria |
+| Modelos GRU solo para acciones del Nasdaq | Soporte parcial para otras acciones | Informar al usuario con RF-27; documentado en la memoria |
 | Procesamiento interno en inglés | Noticias, embeddings y prompts en inglés | Prompt engineering explícito para respuestas en español |
 | Coste OpenAI | API de pago (LLM + embeddings) | Uso acotado al proceso batch offline y análisis por demanda; sin streaming continuo |
 
