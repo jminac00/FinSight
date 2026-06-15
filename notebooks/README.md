@@ -9,8 +9,10 @@ uv project, independent from the backend environment.
 |---|---|
 | `vmd-ssa-lstm.ipynb` | Baseline research notebook (starting point, see #19) |
 | `benchmark/` | Causal model benchmark (see #20) |
+| `benchmark/optimize.py` | Optuna hyperparameter study for the GRU architecture (see #21) |
 | `tests/` | Tests for the benchmark's causality and target alignment guarantees |
 | `results/` | Benchmark output tables (CSV) |
+| `results/optuna/` | Tuning artifacts: study DB, frozen config, importance plot, comparison |
 | `.cache/` | VMD decomposition cache (gitignored) |
 
 ## Benchmark
@@ -94,6 +96,53 @@ uv run pytest
 The tests pin down the two guarantees everything else depends on: features at
 day t never change when data after t changes (causality), and targets align
 with the intended t -> t+horizon return.
+
+## Hyperparameter optimization (Optuna)
+
+`benchmark/optimize.py` tunes the selected GRU architecture under the same causal
+pipeline as the benchmark, then freezes one configuration as the contract the
+per-ticker production training consumes.
+
+- **Sampler / pruner**: TPE sampler + Hyperband pruner — each trial reports its
+  per-epoch validation loss so weak configurations stop early.
+- **Search space**: learning rate (log `[1e-4, 1e-2]`), lookback `[20, 90]`,
+  hidden size `[16, 128]`, layers `[1, 2]`, dense units `[8, 64]`, dropout
+  `[0, 0.3]`, batch size `{16, 32, 64}`. `epochs` is not searched — every trial
+  relies on early stopping.
+- **Objective**: mean over the tuning tickers of the validation RMSE divided by
+  the naive (0%-return) RMSE. The ratio normalizes the per-ticker scale so a
+  high-volatility name (NVDA) does not dominate a stable one (PEP); below 1.0
+  means the model beats the random walk on validation. Each trial averages two
+  seeds to absorb run-to-run noise.
+- **VMD variant** (`--model vmd-gru`): K is chosen by the center-frequency
+  aliasing criterion — the largest K whose VMD modes keep distinct center
+  frequencies, read from VMD's `omega` output — and `alpha` joins the search
+  space. Decompositions are cached in `.cache/`.
+- **Reproducible & resumable**: fixed sampler and training seeds plus SQLite
+  storage; rerunning the same command resumes the study.
+
+### Usage
+
+Run with the venv Python directly so the manually installed CUDA build of torch
+is kept (`uv run` would re-sync to the CPU build):
+
+```bash
+# Tune the GRU on the representative tickers (writes to results/optuna/)
+.venv/Scripts/python.exe -m benchmark.optimize --model gru --trials 40
+
+# Quick end-to-end check (1800 rows, 15 epochs max, few trials)
+.venv/Scripts/python.exe -m benchmark.optimize --model gru --trials 5 --quick
+```
+
+Each run writes, under `results/optuna/`: the SQLite study (`{model}_study.db`),
+the frozen configuration (`{model}_frozen_config.json`), the hyperparameter
+importance plot (`{model}_param_importance.png`) and the comparison table
+(`{model}_comparison.csv` — tuned vs benchmark default vs naive on the untouched
+test split).
+
+> The `vmd-gru` study is an offline activity: every new (lookback, alpha) pair
+> triggers a full-history VMD decomposition (~30 min each), so a full sweep is
+> impractical interactively. The tooling is identical (`--model vmd-gru`).
 
 ## Architecture decision rule
 
