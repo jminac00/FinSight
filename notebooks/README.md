@@ -33,6 +33,13 @@ Trains and evaluates every candidate model on identical, leakage-free samples:
     `(close-open)/close`, gap `(open-prev_close)/prev_close`. These capture
     the information OHL carry beyond the close, which the raw levels barely do
     (open, high, low and close are ~99% correlated day to day).
+- **Multi-branch VMD models** (`vmd-lstm-mb`, `vmd-gru-mb`): instead of feeding
+  all modes as one multivariate input, each VMD mode gets its own recurrent
+  branch (the auxiliary features share one extra branch); the branches' last
+  hidden states are concatenated and a shared head predicts the 10-day return.
+  This is the leakage-free, direct-target version of the classic "one model per
+  mode" scheme — trained end-to-end toward the return, not by reconstructing and
+  summing modes.
 - **Metrics**: RMSE/MAE on the 10-day return (%), directional accuracy,
   3-class trend accuracy and macro F1, parameter count, wall time.
 
@@ -61,6 +68,9 @@ uv run python -m benchmark.run --ticker AAPL --quick
 
 # Subset of models
 uv run python -m benchmark.run --ticker AAPL --models naive,arima,lstm,gru
+
+# Compare the single-input VMD model against its multi-branch variant
+uv run python -m benchmark.run --ticker AAPL --models vmd-gru,vmd-gru-mb
 
 # Compare auxiliary feature sets for the VMD models on the same ticker
 uv run python -m benchmark.run --ticker AAPL --feature-set ohl
