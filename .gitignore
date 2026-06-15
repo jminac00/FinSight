@@ -198,6 +198,9 @@ SRS_FinSight_IEEE830.pdf
 data/*.csv
 data/**/*.csv
 
+# Fundamental analysis universe snapshot (rebuilt daily by the scheduler)
+backend/app/services/fundamental/engine/data/
+
 # Frontend dependencies
 frontend/node_modules/
 
