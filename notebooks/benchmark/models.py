@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import time
+from collections.abc import Callable
 
 import numpy as np
 import torch
@@ -159,11 +160,14 @@ def train_model(
     patience: int = 10,
     seed: int = 42,
     device: str = "cpu",
+    epoch_callback: Callable[[int, float], None] | None = None,
 ) -> float:
     """Train with Adam + MSE and early stopping on validation loss.
 
     The best validation state is restored before returning. Returns the
-    wall-clock training time in seconds.
+    wall-clock training time in seconds. `epoch_callback`, if given, is invoked
+    with (epoch, val_loss) after every epoch; it may raise to abort training
+    early (used by the Optuna study for trial pruning).
     """
     torch.manual_seed(seed)
     model.to(device)
@@ -183,7 +187,7 @@ def train_model(
     bad_epochs = 0
     start = time.perf_counter()
 
-    for _ in range(max_epochs):
+    for epoch in range(max_epochs):
         model.train()
         for xb, yb in loader:
             xb, yb = xb.to(device), yb.to(device)
@@ -194,6 +198,8 @@ def train_model(
         model.eval()
         with torch.no_grad():
             val_loss = criterion(model(X_val_t), y_val_t).item()
+        if epoch_callback is not None:
+            epoch_callback(epoch, val_loss)
         if val_loss < best_loss - 1e-6:
             best_loss = val_loss
             best_state = copy.deepcopy(model.state_dict())

@@ -1,0 +1,4 @@
+model,rmse,mae,dir_acc,cls_acc,f1_macro,params
+naive,5.7645,4.5617,,0.2074,0.1145,0
+vmd-gru-default,5.6715,4.4418,0.5932,0.2179,0.1501,16513
+vmd-gru-tuned,5.6651,4.4486,0.5963,0.2216,0.1421,21777
