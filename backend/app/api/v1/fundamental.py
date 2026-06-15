@@ -1,9 +1,21 @@
 import re
-from datetime import UTC, datetime
+from functools import lru_cache
+from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.core.config import get_settings
+from app.core.finnhub import get_finnhub_client
+from app.llm.factory import get_llm_service
 from app.models.fundamental import FundamentalResult
+from app.services.fundamental.service import (
+    FundamentalAnalysisError,
+    FundamentalService,
+    UniverseNotReadyError,
+    UniverseProvider,
+    UnknownTickerError,
+)
+from app.services.sentiment.ticker_validator import TickerValidator
 
 router = APIRouter()
 
@@ -17,26 +29,34 @@ def _validate_ticker(ticker: str) -> str:
     return t
 
 
-@router.get("/fundamental/{ticker}", response_model=FundamentalResult)
-async def get_fundamental(ticker: str) -> FundamentalResult:
-    """Return mock fundamental analysis for the given ticker."""
-    ticker = _validate_ticker(ticker)
-    return FundamentalResult(
-        score=7.8,
-        metrics={
-            "per": 28.5,
-            "roe": 0.312,
-            "ev_ebitda": 21.3,
-            "margen_operativo": 0.295,
-            "margen_neto": 0.253,
-            "deuda_capital": 1.74,
-            "flujo_caja_libre": 89_500_000_000,
-        },
-        llm_analysis=(
-            f"{ticker} presenta una situación financiera sólida con márgenes operativos "
-            "superiores a la media del sector. El flujo de caja libre elevado proporciona "
-            "capacidad para recompras y dividendos. El ratio PER refleja la prima de "
-            "crecimiento que el mercado asigna a la empresa."
-        ),
-        cached_at=datetime.now(tz=UTC),
+@lru_cache
+def get_fundamental_service() -> FundamentalService:
+    """Return the singleton FundamentalService wired from settings."""
+    settings = get_settings()
+    path = Path(settings.fundamental_universe_path) if settings.fundamental_universe_path else None
+    return FundamentalService(
+        universe_provider=UniverseProvider(path),
+        llm_service=get_llm_service(),
+        ticker_validator=TickerValidator(client=get_finnhub_client()),
+        cache_ttl=settings.cache_ttl_fundamental,
     )
+
+
+@router.get("/fundamental/{ticker}", response_model=FundamentalResult)
+async def get_fundamental(
+    ticker: str,
+    force_refresh: bool = Query(default=False),
+    service: FundamentalService = Depends(get_fundamental_service),
+) -> FundamentalResult:
+    """Return the fundamental analysis for the given ticker."""
+    ticker = _validate_ticker(ticker)
+    try:
+        return await service.analyze(ticker, force_refresh=force_refresh)
+    except UnknownTickerError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except UniverseNotReadyError as exc:
+        raise HTTPException(
+            status_code=503, detail="Fundamental universe is being prepared; try again shortly"
+        ) from exc
+    except FundamentalAnalysisError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
