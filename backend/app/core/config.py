@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     # runtime stats. Empty → engine package default location (app/.../engine/data).
     fundamental_data_dir: str = ""
 
+    # Technical analysis: directory holding the frozen price-universe snapshots.
+    # Empty → engine package default location (app/.../technical/engine/data).
+    technical_data_dir: str = ""
+
     def validate_production_keys(self) -> None:
         """Raise if critical API keys are missing in production."""
         if self.environment != "production":
