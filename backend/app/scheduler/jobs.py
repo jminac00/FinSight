@@ -6,6 +6,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.services.fundamental.engine.msci_world import build_msci_world_universe
 from app.services.fundamental.engine.universe import build_universe
+from app.services.technical.engine.universe_manager import build_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,24 @@ async def weekly_fundamental_refresh() -> None:
         logger.exception("Could not clear the fundamental service cache")
 
 
+async def daily_technical_refresh() -> None:
+    """Rebuild the technical price-universe snapshots (S&P 500 + MSCI World) with fresh EOD data.
+
+    Runs daily at 23:00 CET, after the US market close, so the technical blocks normalize against an
+    up-to-date cross-section. Each universe is rebuilt independently: on failure the last-good
+    snapshot is kept. build_snapshot already drops the universe manager's in-memory cache.
+    """
+    logger.info("daily_technical_refresh starting")
+    for universe in ("sp500", "msci_world"):
+        try:
+            closes = await asyncio.to_thread(build_snapshot, universe)
+            logger.info("Technical %s universe rebuilt: %d tickers", universe, closes.shape[1])
+        except Exception:
+            logger.exception(
+                "Technical %s universe rebuild failed; keeping existing snapshot", universe
+            )
+
+
 async def daily_model_update() -> None:
     """Retrain all available GRU models with the latest EOD market data.
 
@@ -68,12 +87,16 @@ def start_scheduler() -> None:
         id="weekly_fundamental_refresh",
         replace_existing=True,
     )
-    # NOTE: the daily technical-universe (prices) refresh belongs to the technical module (Phase 2)
-    # and will be registered here when that module is integrated.
+    _scheduler.add_job(
+        daily_technical_refresh,
+        trigger=CronTrigger(hour=23, minute=0, timezone="Europe/Madrid"),
+        id="daily_technical_refresh",
+        replace_existing=True,
+    )
     _scheduler.start()
     logger.info(
         "APScheduler started — daily_model_update at 22:00 CET, "
-        "weekly_fundamental_refresh on Sunday 04:00 CET"
+        "daily_technical_refresh at 23:00 CET, weekly_fundamental_refresh on Sunday 04:00 CET"
     )
 
 
