@@ -1,7 +1,6 @@
 from app.services.technical.engine.utils.data_loader import (
     get_last_universe_ohlcv,
     get_price_history,
-    get_sector_performance,
     get_sp500_tickers,
     get_ticker_sector,
     get_universe_closes,
@@ -23,7 +22,6 @@ __all__ = [
     "diagnose_score_distribution",
     "get_last_universe_ohlcv",
     "get_price_history",
-    "get_sector_performance",
     "get_sp500_tickers",
     "get_ticker_sector",
     "get_universe_closes",
