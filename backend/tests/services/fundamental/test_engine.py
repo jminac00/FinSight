@@ -8,11 +8,23 @@ redistribution) rather than exact numeric values.
 import numpy as np
 import pandas as pd
 
+from app.services.fundamental.engine.fundamental_score import combine_fundamental_scores
 from app.services.fundamental.engine.growth import compute_growth_score
+from app.services.fundamental.engine.quality import compute_quality_score
+from app.services.fundamental.engine.ratio_profiles import GLOBAL_ROBUST
 from app.services.fundamental.engine.sanitizer import sanitize_all, sanitize_valuation
-from app.services.fundamental.engine.scoring import combine_fundamental_scores
 from app.services.fundamental.engine.solvency import compute_solvency_score
 from app.services.fundamental.engine.valuation import compute_valuation_score
+
+# Comparable-currency fields: without them the new engine neutralizes valuation
+# (currencies_comparable() requires price/market-cap/financial currency to match).
+_USD_CURRENCY = {
+    "price_currency": "USD",
+    "market_cap_currency": "USD",
+    "financial_currency": "USD",
+    "ticker_currency": "USD",
+    "valuation_currency_mismatch": False,
+}
 
 
 def _synthetic_universe(n: int = 30) -> pd.DataFrame:
@@ -29,6 +41,7 @@ def _synthetic_universe(n: int = 30) -> pd.DataFrame:
             "returnOnAssets": rng.uniform(0.02, 0.2, n),
             "returnOnEquity": rng.uniform(0.05, 0.4, n),
             "operatingMargins": rng.uniform(0.1, 0.4, n),
+            "roce": rng.uniform(0.05, 0.35, n),
             "fcf_ni": rng.uniform(0.5, 1.5, n),
             "revenue_trend_ols": rng.uniform(-0.1, 0.3, n),
             "fcf_trend_ols": rng.uniform(-0.1, 0.3, n),
@@ -75,7 +88,8 @@ def test_sanitize_all_negative_equity_and_zeroed_fcf_ni():
 def test_valuation_is_monotonic_in_yields():
     """A company with higher yields than its peers must score at least as high as a cheaper one."""
     universe = _synthetic_universe()
-    base = {"ticker": "X", "sector": "Other"}  # sector absent from universe → S&P-only z-score
+    # sector absent from universe → S&P-only z-score
+    base = {"ticker": "X", "sector": "Other", **_USD_CURRENCY}
 
     cheap = {
         **base,
@@ -106,7 +120,7 @@ def test_valuation_median_company_scores_near_five():
         "fcf_yield": float(universe["fcf_yield"].mean()),
         "book_yield": float(universe["book_yield"].mean()),
     }
-    company = {"ticker": "MID", "sector": "Other", **means}
+    company = {"ticker": "MID", "sector": "Other", **_USD_CURRENCY, **means}
     score = compute_valuation_score(company, universe)["score"]
     assert 4.0 < score < 6.0
 
@@ -151,6 +165,34 @@ def test_solvency_interest_coverage_rules():
     )
     assert debt_free["interest_coverage_assigned"] is True
     assert debt_free["interest_coverage_used"] is not None
+
+
+def test_global_robust_profile_drops_book_yield_and_uses_roce():
+    """The global_robust profile excludes Book Yield (valuation) and uses ROCE (quality)."""
+    universe = _synthetic_universe()
+    company = {
+        "ticker": "GLOB",
+        "sector": "Other",
+        **_USD_CURRENCY,
+        "ebitda_yield": 0.10,
+        "earnings_yield": 0.06,
+        "fcf_yield": 0.05,
+        "book_yield": 0.40,
+        "gp_a": 0.40,
+        "roce": 0.30,
+        "roa": 0.15,
+        "operating_margin": 0.30,
+        "fcf_ni": 1.1,
+    }
+
+    val = compute_valuation_score(company, universe, profile=GLOBAL_ROBUST)
+    # Book Yield is not part of the global_robust valuation components
+    assert "book_yield_eff" not in val
+    assert val["score"] is not None
+
+    qual = compute_quality_score(company, universe, profile=GLOBAL_ROBUST)
+    assert qual["roce"] == 0.30
+    assert qual["score"] is not None
 
 
 def test_combine_redistributes_weights_when_a_block_is_missing():

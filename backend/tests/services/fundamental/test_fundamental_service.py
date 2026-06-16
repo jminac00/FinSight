@@ -8,7 +8,6 @@ from app.services.fundamental.service import (
     FundamentalAnalysisError,
     FundamentalService,
     UniverseNotReadyError,
-    UnknownTickerError,
 )
 
 
@@ -37,48 +36,50 @@ def _raw_result(score_final: float | None = 6.5) -> dict:
     }
 
 
-class _FakeProvider:
-    def __init__(self, df: pd.DataFrame | None = None, ready: bool = True) -> None:
+class _FakeManager:
+    """Stand-in for UniverseManager: routes by mode and serves a fake universe DataFrame."""
+
+    def __init__(
+        self,
+        df: pd.DataFrame | None = None,
+        ready: bool = True,
+        universe: str = "sp500",
+    ) -> None:
         self._df = df if df is not None else pd.DataFrame({"ticker": ["AAPL"]})
         self._ready = ready
+        self._universe = universe
+        self.resolve_calls: list[tuple[str, str]] = []
 
-    def get(self) -> pd.DataFrame:
+    def resolve_universe(self, ticker: str, mode: str = "auto") -> str:
+        self.resolve_calls.append((ticker, mode))
+        return self._universe
+
+    def get_universe_df(self, universe: str = "sp500") -> pd.DataFrame:
         if not self._ready:
-            raise UniverseNotReadyError("universe not built yet")
+            raise FileNotFoundError("universe not built yet")
         return self._df
-
-
-class _FakeValidator:
-    def __init__(self, exists: bool = True) -> None:
-        self._exists = exists
-        self.calls: list[str] = []
-
-    async def exists(self, ticker: str) -> bool:
-        self.calls.append(ticker)
-        return self._exists
 
 
 class _FakeAnalyze:
     def __init__(self, raw: dict) -> None:
         self._raw = raw
-        self.calls: list[str] = []
+        self.calls: list[tuple[str, str]] = []
 
-    def __call__(self, ticker: str, universe_df: pd.DataFrame) -> dict:
-        self.calls.append(ticker)
+    def __call__(self, ticker: str, universe_df: pd.DataFrame, universe: str) -> dict:
+        self.calls.append((ticker, universe))
         return {**self._raw, "ticker": ticker}
 
 
-def _make_service(mock_llm, *, raw=None, exists=True, ready=True, validator=None):
+def _make_service(mock_llm, *, raw=None, ready=True, universe="sp500", manager=None):
     analyze = _FakeAnalyze(raw if raw is not None else _raw_result())
-    validator = validator or _FakeValidator(exists=exists)
+    manager = manager or _FakeManager(ready=ready, universe=universe)
     service = FundamentalService(
-        universe_provider=_FakeProvider(ready=ready),
         llm_service=mock_llm,
-        ticker_validator=validator,
         cache_ttl=1800,
+        manager=manager,
         analyze_fn=analyze,
     )
-    return service, analyze, validator
+    return service, analyze, manager
 
 
 async def test_analyze_returns_result_and_calls_llm(mock_llm):
@@ -91,19 +92,21 @@ async def test_analyze_returns_result_and_calls_llm(mock_llm):
     assert result.llm_analysis == "Respuesta de prueba del LLM."
     # The deterministic summary must be the LLM user prompt
     assert mock_llm.complete.await_args.kwargs["user_prompt"].startswith("[ANÁLISIS FUNDAMENTAL")
-    # Metrics expose the four sub-scores
+    # Metrics expose the four sub-scores, plus universe and mode
     assert result.metrics["scores"]["valoracion"] == 5.0
     assert result.metrics["scores"]["solvencia"] == 6.0
-    assert analyze.calls == ["AAPL"]
+    assert result.metrics["universe"] == "sp500"
+    assert result.metrics["mode"] == "auto"
+    assert analyze.calls == [("AAPL", "sp500")]
 
 
-async def test_result_is_cached_per_ticker(mock_llm):
+async def test_result_is_cached_per_universe_ticker(mock_llm):
     service, analyze, _ = _make_service(mock_llm)
 
     await service.analyze("AAPL")
     await service.analyze("AAPL")
 
-    assert analyze.calls == ["AAPL"]  # second call served from cache
+    assert analyze.calls == [("AAPL", "sp500")]  # second call served from cache
     assert mock_llm.complete.await_count == 1
 
 
@@ -113,16 +116,17 @@ async def test_force_refresh_bypasses_cache(mock_llm):
     await service.analyze("AAPL")
     await service.analyze("AAPL", force_refresh=True)
 
-    assert analyze.calls == ["AAPL", "AAPL"]
+    assert analyze.calls == [("AAPL", "sp500"), ("AAPL", "sp500")]
 
 
-async def test_unknown_ticker_raises_and_skips_engine(mock_llm):
-    service, analyze, _ = _make_service(mock_llm, exists=False)
+async def test_mode_routes_to_resolved_universe(mock_llm):
+    service, analyze, manager = _make_service(mock_llm, universe="msci_world")
 
-    with pytest.raises(UnknownTickerError):
-        await service.analyze("ZZZZ")
+    result = await service.analyze("ASML.AS", mode="global")
 
-    assert analyze.calls == []
+    assert manager.resolve_calls == [("ASML.AS", "global")]
+    assert result.metrics["universe"] == "msci_world"
+    assert analyze.calls == [("ASML.AS", "msci_world")]
 
 
 async def test_universe_not_ready_propagates(mock_llm):
