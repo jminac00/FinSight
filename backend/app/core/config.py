@@ -53,8 +53,9 @@ class Settings(BaseSettings):
     graph_hop_depth: int = 2
     lru_cache_max_models: int = 10
 
-    # Fundamental analysis (empty path → engine package default location)
-    fundamental_universe_path: str = ""
+    # Fundamental analysis: directory holding the frozen reference universes and
+    # runtime stats. Empty → engine package default location (app/.../engine/data).
+    fundamental_data_dir: str = ""
 
     def validate_production_keys(self) -> None:
         """Raise if critical API keys are missing in production."""
