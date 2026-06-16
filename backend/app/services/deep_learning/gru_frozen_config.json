@@ -1,0 +1,27 @@
+{
+  "architecture": "gru",
+  "use_vmd": false,
+  "horizon": 10,
+  "params": {
+    "lr": 0.00034434073864277764,
+    "lookback": 24,
+    "hidden_size": 37,
+    "num_layers": 1,
+    "dense_units": 50,
+    "dropout": 0.24283099538508776,
+    "batch_size": 16
+  },
+  "objective": "mean over tickers of (val RMSE / naive val RMSE)",
+  "best_objective": 0.9803181885463994,
+  "tuned_on": [
+    "AAPL",
+    "NVDA",
+    "PEP"
+  ],
+  "sampler_seed": 42,
+  "training_seeds": [
+    42,
+    43
+  ],
+  "study_name": "gru_h10"
+}
