@@ -194,6 +194,10 @@ SRS_FinSight_IEEE830.pdf
 *.pt
 *.pth
 
+# Trained deep learning artifacts (regenerated per ticker); keep the directory
+backend/ml_models/*
+!backend/ml_models/.gitkeep
+
 # Historical market data CSVs
 data/*.csv
 data/**/*.csv
