@@ -1,28 +1,23 @@
-"""
-technical_score.py
-Orquestador del Technical Score final (0-10).
+"""Final Technical Score orchestrator (0-10).
 
-Pesos nominales:
-    Price Momentum      35%  (incluye RS sector como componente interno)
+Nominal weights:
+    Price Momentum      35%  (includes sector RS as an internal component)
     Trend               30%
     Risk / Stability    20%
     Confirmation        15%
 
-Si un bloque devuelve None o falla, su peso se redistribuye proporcionalmente
-entre los bloques disponibles. La descarga del universo S&P 500 se cachea en
-memoria durante la sesion e incluye SPY de forma explicita para el benchmark.
+If a block returns None or fails, its weight is redistributed proportionally among the available
+blocks.
+
+The reference universe (closes + OHLCV) can be injected by the caller; this is how the service
+feeds the frozen on-disk snapshot. When it is not injected the engine falls back to downloading the
+S&P 500 universe and caching it in memory for the session.
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import sys
 from typing import Any
-
-if __name__ == "__main__":
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pandas as pd
 
@@ -30,6 +25,12 @@ from app.services.technical.engine.blocks.block1_momentum import compute_momentu
 from app.services.technical.engine.blocks.block2_trend import compute_trend_block
 from app.services.technical.engine.blocks.block4_risk_stability import compute_risk_stability_block
 from app.services.technical.engine.blocks.block5_confirmation import compute_confirmation_block
+from app.services.technical.engine.config import (
+    BLOCK_WEIGHTS,
+    RELIABILITY_THRESHOLD,
+    SCORE_KEYS,
+    SIGNAL_THRESHOLDS,
+)
 from app.services.technical.engine.utils.data_loader import (
     get_fx_to_usd_series,
     get_last_universe_ohlcv,
@@ -41,33 +42,22 @@ from app.services.technical.engine.utils.normalization import assign_signal
 
 logger = logging.getLogger(__name__)
 
-FMP_API_KEY: str | None = os.environ.get("FMP_API_KEY")
-
-_WEIGHTS: dict[str, float] = {
-    "momentum": 0.35,  # incluye RS sector como componente interno
-    "trend": 0.30,
-    "risk_stability": 0.20,
-    "confirmation": 0.15,
-}
-
-_SCORE_KEY: dict[str, str] = {
-    "momentum": "normalized_score_0_10",
-    "trend": "trend_score_0_10",
-    "risk_stability": "risk_stability_score_0_10",
-    "confirmation": "confirmation_score_0_10",
-}
+_BLOCK_NONE_REASON = (
+    "The block returned None because of insufficient data or a non-normalizable universe "
+    "distribution."
+)
 
 _universe_cache: dict[str, Any] | None = None
 _technical_universe_cache: dict[str, dict[str, Any]] = {}
 
 
 def _normalize_ticker(ticker: str) -> str:
-    """Homogeneiza el ticker: uppercase y puntos sustituidos por guiones."""
+    """Normalize the ticker: uppercase and dots replaced by dashes."""
     return ticker.strip().upper().replace(".", "-")
 
 
 def _normalize_global_ticker(ticker: str) -> str:
-    """Homogeneiza tickers internacionales preservando sufijos de yfinance."""
+    """Normalize international tickers, preserving yfinance suffixes."""
     return ticker.strip().upper()
 
 
@@ -77,7 +67,7 @@ def _canonical_universe(universe: str) -> str:
         return "sp500"
     if name in {"msci_world", "global"}:
         return "msci_world"
-    raise KeyError(f"Universo tecnico no soportado: {universe}")
+    raise KeyError(f"Unsupported technical universe: {universe}")
 
 
 def _tag_ohlcv_cache(
@@ -95,18 +85,17 @@ def _tag_ohlcv_cache(
 
 
 def _get_cached_universe() -> dict[str, Any]:
-    """
-    Descarga el universo S&P 500 la primera vez y usa cache despues.
+    """Download the S&P 500 universe on first use and cache it afterwards.
 
-    SPY se anade explicitamente a la descarga masiva aunque no sea componente
-    del S&P 500 para evitar descargas repetidas en Relative Strength.
+    SPY is added explicitly to the bulk download (even though it is not an S&P 500 constituent) to
+    avoid repeated downloads in Relative Strength.
     """
     global _universe_cache
     if _universe_cache is None:
-        logger.info("Descargando universo S&P 500 (primera llamada)...")
+        logger.info("Downloading S&P 500 universe (first call)...")
         sp500 = get_sp500_tickers()
-        tickers_con_spy = sp500 + ["SPY"] if "SPY" not in sp500 else sp500
-        closes = get_universe_closes(tickers_con_spy)
+        tickers_with_spy = sp500 + ["SPY"] if "SPY" not in sp500 else sp500
+        closes = get_universe_closes(tickers_with_spy)
         closes.attrs["universe_name"] = "sp500_closes"
         _universe_cache = {
             "tickers": sp500,
@@ -117,10 +106,12 @@ def _get_cached_universe() -> dict[str, Any]:
 
 
 def _get_cached_global_universe(universe: str) -> dict[str, Any]:
-    """
-    Descarga/construye el universo tecnico global una vez por ejecucion.
+    """Download/build the global technical universe once per execution.
 
-    Los cierres llegan ya convertidos a USD desde UniverseManager.
+    The closes arrive already converted to USD from the universe manager.
+
+    NOTE: this internal download is rewired to the frozen on-disk snapshot by the technical universe
+    manager; it is only reached when the global universe is requested without an injected universe.
     """
     universe = _canonical_universe(universe)
     cache_key = "msci_world_closes_usd" if universe == "msci_world" else "sp500_closes"
@@ -134,7 +125,7 @@ def _get_cached_global_universe(universe: str) -> dict[str, Any]:
 
     from fundamental.universe_manager import get_universe_manager
 
-    logger.info("Descargando universo tecnico %s en USD (primera llamada)...", universe)
+    logger.info("Downloading %s technical universe in USD (first call)...", universe)
     mgr = get_universe_manager()
     cfg = mgr.get_config(universe)
     closes = mgr.get_universe_closes(universe=universe)
@@ -152,9 +143,8 @@ def _universe_with_ticker(
     ticker: str,
     universe_closes: pd.DataFrame,
 ) -> tuple[pd.DataFrame, str | None]:
-    """
-    Si el ticker no esta en el universo descargado, intenta anadir su historico
-    individual temporalmente para mantener la comparacion contra S&P 500.
+    """If the ticker is not in the downloaded universe, try to append its individual history
+    temporarily to keep the comparison against the S&P 500.
     """
     if ticker in universe_closes.columns:
         return universe_closes, None
@@ -166,14 +156,14 @@ def _universe_with_ticker(
         closes[ticker] = close.reindex(closes.index).ffill()
         if closes[ticker].dropna().empty:
             return universe_closes, (
-                f"Ticker '{ticker}' no pertenece al universo S&P 500 y no se pudo "
-                "alinear su historico individual."
+                f"Ticker '{ticker}' is not in the S&P 500 universe and its individual history "
+                "could not be aligned."
             )
         return closes, None
     except Exception as exc:
         return universe_closes, (
-            f"Ticker '{ticker}' no pertenece al universo S&P 500 descargado y "
-            f"no se pudo descargar su historico individual: {exc}"
+            f"Ticker '{ticker}' is not in the downloaded S&P 500 universe and its individual "
+            f"history could not be downloaded: {exc}"
         )
 
 
@@ -181,13 +171,12 @@ def _universe_with_ticker_usd(
     ticker: str,
     universe_closes: pd.DataFrame,
 ) -> tuple[pd.DataFrame, str | None]:
-    """
-    Si el ticker no está en el universo global (cierres ya en USD), lo descarga
-    individualmente, aplica conversión FX y lo añade temporalmente.
+    """If the ticker is not in the global universe (closes already in USD), download it
+    individually, apply the FX conversion and append it temporarily.
 
-    Equivalente a _universe_with_ticker para el path sp500, pero con la capa FX
-    necesaria en universos multi-divisa.  Se usa cuando el ticker falla en la
-    descarga masiva del universo (p. ej. por rate limiting de yfinance).
+    Equivalent to _universe_with_ticker for the sp500 path, but with the FX layer needed in
+    multi-currency universes. Used when the ticker is missing from the bulk universe download
+    (e.g. yfinance rate limiting).
     """
     if ticker in universe_closes.columns:
         return universe_closes, None
@@ -196,7 +185,7 @@ def _universe_with_ticker_usd(
         history = get_price_history(ticker, period="3y")
         close_local = history["Close"]
 
-        # Moneda: currency map MSCI World → yfinance info → default USD
+        # Currency: MSCI World currency map -> yfinance info -> default USD
         ccy = "USD"
         try:
             from fundamental.msci_world import load_currency_map
@@ -219,7 +208,7 @@ def _universe_with_ticker_usd(
                 close_usd = close_local * fx
             else:
                 logger.warning(
-                    "FX no disponible para %s (%s); precio local añadido al universo global.",
+                    "FX not available for %s (%s); local price appended to the global universe.",
                     ticker,
                     ccy,
                 )
@@ -228,133 +217,30 @@ def _universe_with_ticker_usd(
         closes[ticker] = close_usd.rename(ticker).reindex(closes.index).ffill()
         if closes[ticker].dropna().empty:
             return universe_closes, (
-                f"Ticker '{ticker}' no pertenece al universo MSCI World y no se pudo "
-                "alinear su historico individual."
+                f"Ticker '{ticker}' is not in the MSCI World universe and its individual history "
+                "could not be aligned."
             )
         return closes, None
     except Exception as exc:
         return universe_closes, (
-            f"Ticker '{ticker}' no pertenece al universo MSCI World y "
-            f"fallo la descarga individual: {exc}"
+            f"Ticker '{ticker}' is not in the MSCI World universe and its individual download "
+            f"failed: {exc}"
         )
 
 
-def compute_technical_score(ticker: str, universe: str = "sp500") -> dict[str, Any]:
+def _run_blocks_and_aggregate(
+    ticker: str,
+    universe_closes: pd.DataFrame,
+    universe_ohlcv: dict[str, pd.DataFrame] | None,
+    ticker_error: str | None,
+) -> dict[str, Any]:
+    """Run the four blocks, aggregate their scores and build the result dict.
+
+    Universe-agnostic: shared by the S&P 500 and global paths. Does not add the optional
+    ``universe`` key (the global path adds it).
     """
-    Calcula el Technical Score completo (0-10) para el ticker indicado.
-
-    Mantiene las claves publicas principales:
-    ticker, technical_score, signal, weights, effective_weights,
-    individual_scores y blocks. Anade errors para explicar fallos por bloque.
-    """
-    if _canonical_universe(universe) == "sp500":
-        ticker = _normalize_ticker(ticker)
-        logger.info("Calculando Technical Score para %s...", ticker)
-
-        universe = _get_cached_universe()
-        universe_closes: pd.DataFrame = universe["closes"]
-        universe_ohlcv: dict[str, pd.DataFrame] | None = universe.get("ohlcv")
-        universe_closes, ticker_error = _universe_with_ticker(ticker, universe_closes)
-
-        blocks: dict[str, dict | None] = {}
-        errors: dict[str, str] = {}
-        if ticker_error is not None:
-            errors["ticker"] = ticker_error
-
-        block_specs = [
-            ("momentum", compute_momentum_block, {}),
-            ("trend", compute_trend_block, {}),
-            ("risk_stability", compute_risk_stability_block, {}),
-            ("confirmation", compute_confirmation_block, {"universe_ohlcv": universe_ohlcv}),
-        ]
-
-        for name, fn, kwargs in block_specs:
-            if ticker_error is not None:
-                blocks[name] = None
-                errors[name] = ticker_error
-                continue
-
-            try:
-                result = fn(ticker, universe_closes, **kwargs)
-                blocks[name] = result
-                if result is None:
-                    errors[name] = (
-                        "El bloque devolvio None por datos insuficientes o por una "
-                        "distribucion de universo no normalizable."
-                    )
-            except Exception as exc:
-                logger.error("Bloque '%s' fallido para %s: %s", name, ticker, exc)
-                blocks[name] = None
-                errors[name] = str(exc)
-
-        individual_scores: dict[str, float | None] = {
-            name: (result.get(_SCORE_KEY[name]) if result is not None else None)
-            for name, result in blocks.items()
-        }
-
-        available = {k: v for k, v in individual_scores.items() if v is not None}
-        total_nominal = sum(_WEIGHTS[k] for k in available)
-
-        data_completeness: float = total_nominal  # fraccion del peso nominal con datos [0, 1]
-
-        if total_nominal == 0:
-            technical_score: float | None = None
-            signal_global = "sin_datos"
-            effective_weights: dict[str, float] = {}
-        else:
-            weighted_sum = sum(
-                (_WEIGHTS[k] / total_nominal) * score for k, score in available.items()
-            )
-            technical_score = round(float(weighted_sum), 2)
-            signal_global = assign_signal(
-                technical_score,
-                thresholds=(4.0, 6.5),
-                labels=("bajista", "neutral", "alcista"),
-            )
-            effective_weights = {k: round(_WEIGHTS[k] / total_nominal, 4) for k in available}
-
-        # Un score es fiable cuando al menos el 60% del peso nominal tiene datos validos.
-        # Con pesos 35/30/20/15, el minimo fiable es momentum+trend (65%) o cualquier
-        # combinacion que supere el umbral. Sin momentum ni trend el score no es comparable.
-        score_reliable: bool = data_completeness >= 0.60
-
-        return {
-            "ticker": ticker,
-            "technical_score": technical_score,
-            "technical_signal": signal_global,
-            "momentum_score": individual_scores.get("momentum"),
-            "trend_score": individual_scores.get("trend"),
-            "risk_stability_score": individual_scores.get("risk_stability"),
-            "confirmation_score": individual_scores.get("confirmation"),
-            "summary": _build_technical_summary(
-                ticker, technical_score, signal_global, individual_scores
-            ),
-            "signal": signal_global,
-            "weights": _WEIGHTS,
-            "effective_weights": effective_weights,
-            "individual_scores": individual_scores,
-            "data_completeness": round(data_completeness, 4),
-            "score_reliable": score_reliable,
-            "errors": errors,
-            "blocks": blocks,
-        }
-
-    return _compute_technical_score_global(ticker, universe)
-
-
-def _compute_technical_score_global(ticker: str, universe: str) -> dict[str, Any]:
-    """Calcula Technical Score contra un universo global ya convertido a USD."""
-    ticker = _normalize_global_ticker(ticker)
-    universe_name = _canonical_universe(universe)
-    logger.info("Calculando Technical Score para %s contra %s...", ticker, universe_name)
-
-    cached_universe = _get_cached_global_universe(universe_name)
-    universe_closes: pd.DataFrame = cached_universe["closes"]
-    universe_ohlcv: dict[str, pd.DataFrame] | None = cached_universe.get("ohlcv")
-
     blocks: dict[str, dict | None] = {}
     errors: dict[str, str] = {}
-    universe_closes, ticker_error = _universe_with_ticker_usd(ticker, universe_closes)
     if ticker_error is not None:
         errors["ticker"] = ticker_error
 
@@ -375,40 +261,42 @@ def _compute_technical_score_global(ticker: str, universe: str) -> dict[str, Any
             result = fn(ticker, universe_closes, **kwargs)
             blocks[name] = result
             if result is None:
-                errors[name] = (
-                    "El bloque devolvio None por datos insuficientes o por una "
-                    "distribucion de universo no normalizable."
-                )
+                errors[name] = _BLOCK_NONE_REASON
         except Exception as exc:
-            logger.error("Bloque '%s' fallido para %s: %s", name, ticker, exc)
+            logger.error("Block '%s' failed for %s: %s", name, ticker, exc)
             blocks[name] = None
             errors[name] = str(exc)
 
     individual_scores: dict[str, float | None] = {
-        name: (result.get(_SCORE_KEY[name]) if result is not None else None)
+        name: (result.get(SCORE_KEYS[name]) if result is not None else None)
         for name, result in blocks.items()
     }
 
     available = {k: v for k, v in individual_scores.items() if v is not None}
-    total_nominal = sum(_WEIGHTS[k] for k in available)
+    total_nominal = sum(BLOCK_WEIGHTS[k] for k in available)
 
-    data_completeness: float = total_nominal
+    data_completeness: float = total_nominal  # fraction of the nominal weight with data [0, 1]
 
     if total_nominal == 0:
         technical_score: float | None = None
         signal_global = "sin_datos"
         effective_weights: dict[str, float] = {}
     else:
-        weighted_sum = sum((_WEIGHTS[k] / total_nominal) * score for k, score in available.items())
+        weighted_sum = sum(
+            (BLOCK_WEIGHTS[k] / total_nominal) * score for k, score in available.items()
+        )
         technical_score = round(float(weighted_sum), 2)
         signal_global = assign_signal(
             technical_score,
-            thresholds=(4.0, 6.5),
+            thresholds=SIGNAL_THRESHOLDS,
             labels=("bajista", "neutral", "alcista"),
         )
-        effective_weights = {k: round(_WEIGHTS[k] / total_nominal, 4) for k in available}
+        effective_weights = {k: round(BLOCK_WEIGHTS[k] / total_nominal, 4) for k in available}
 
-    score_reliable: bool = data_completeness >= 0.60
+    # A score is reliable when at least 60% of the nominal weight has valid data. With weights
+    # 35/30/20/15 the reliable minimum is momentum+trend (65%) or any combination above the
+    # threshold. Without momentum or trend the score is not comparable.
+    score_reliable: bool = data_completeness >= RELIABILITY_THRESHOLD
 
     return {
         "ticker": ticker,
@@ -422,15 +310,60 @@ def _compute_technical_score_global(ticker: str, universe: str) -> dict[str, Any
             ticker, technical_score, signal_global, individual_scores
         ),
         "signal": signal_global,
-        "weights": _WEIGHTS,
+        "weights": BLOCK_WEIGHTS,
         "effective_weights": effective_weights,
         "individual_scores": individual_scores,
         "data_completeness": round(data_completeness, 4),
         "score_reliable": score_reliable,
         "errors": errors,
         "blocks": blocks,
-        "universe": universe_name,
     }
+
+
+def compute_technical_score(
+    ticker: str,
+    universe: str = "sp500",
+    *,
+    universe_closes: pd.DataFrame | None = None,
+    universe_ohlcv: dict[str, pd.DataFrame] | None = None,
+) -> dict[str, Any]:
+    """Compute the full Technical Score (0-10) for the given ticker.
+
+    Args:
+        ticker: Stock symbol.
+        universe: Reference universe: ``sp500``/``domestic`` or ``msci_world``/``global``.
+        universe_closes: Optional injected universe closes (tickers in columns). When provided the
+            engine skips the internal download and normalizes against it. The caller must set
+            ``universe_closes.attrs['universe_name']`` so the per-block caches key correctly.
+        universe_ohlcv: Optional injected universe OHLCV (High/Low/Close/Volume), used by the
+            confirmation block.
+
+    Returns:
+        Result dict with technical_score, signal, weights, effective_weights, individual_scores and
+        the per-block detail; the global path also adds a ``universe`` key.
+    """
+    canonical = _canonical_universe(universe)
+
+    if canonical == "sp500":
+        ticker = _normalize_ticker(ticker)
+        logger.info("Computing Technical Score for %s...", ticker)
+        if universe_closes is None:
+            cached = _get_cached_universe()
+            universe_closes = cached["closes"]
+            universe_ohlcv = cached.get("ohlcv")
+        universe_closes, ticker_error = _universe_with_ticker(ticker, universe_closes)
+        return _run_blocks_and_aggregate(ticker, universe_closes, universe_ohlcv, ticker_error)
+
+    ticker = _normalize_global_ticker(ticker)
+    logger.info("Computing Technical Score for %s against %s...", ticker, canonical)
+    if universe_closes is None:
+        cached = _get_cached_global_universe(canonical)
+        universe_closes = cached["closes"]
+        universe_ohlcv = cached.get("ohlcv")
+    universe_closes, ticker_error = _universe_with_ticker_usd(ticker, universe_closes)
+    result = _run_blocks_and_aggregate(ticker, universe_closes, universe_ohlcv, ticker_error)
+    result["universe"] = canonical
+    return result
 
 
 def _build_technical_summary(
@@ -451,10 +384,3 @@ def _build_technical_summary(
         f"{ticker}: Technical Score {score:.2f}/10 ({signal}). "
         "Modelo oficial de 4 bloques: " + ", ".join(parts) + "."
     )
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    test_ticker = sys.argv[1] if len(sys.argv) > 1 else "AAPL"
-    result = compute_technical_score(test_ticker)
-    print(json.dumps(result, indent=2, default=str))
