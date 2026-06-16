@@ -66,14 +66,22 @@ def _flatten(obj: Any, prefix: str = "") -> dict[str, Any]:
 
 
 def _compute_basket(synthetic_universe: dict, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
-    """Run the engine for the basket against the synthetic universe and flatten each result."""
+    """Run the engine for the basket against the injected synthetic universe and flatten results."""
     _reset_engine_caches()
     # Hermetic: synthetic tickers are absent from the fundamental CSV anyway, so an empty sector map
     # reproduces the real behavior (RS sector percentile defaults to 0.5).
     monkeypatch.setattr(block1_momentum, "load_sector_map_from_fundamental", lambda: {})
-    monkeypatch.setattr(technical_score, "_get_cached_universe", lambda: synthetic_universe)
 
-    return {ticker: _flatten(compute_technical_score(ticker)) for ticker in _BASKET}
+    closes = synthetic_universe["closes"]
+    ohlcv = synthetic_universe["ohlcv"]
+    return {
+        ticker: _flatten(
+            compute_technical_score(
+                ticker, universe="sp500", universe_closes=closes, universe_ohlcv=ohlcv
+            )
+        )
+        for ticker in _BASKET
+    }
 
 
 def _assert_close(ticker: str, path: str, expected: Any, actual: Any) -> None:
