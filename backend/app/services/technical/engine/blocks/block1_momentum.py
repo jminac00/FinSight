@@ -1,30 +1,27 @@
-"""
-block1_momentum.py
-Bloque 1: Price Momentum — peso 35 % en el Technical Score.
+"""Block 1: Price Momentum — 35% weight in the Technical Score.
 
-Mide la persistencia del rendimiento reciente ajustada por volatilidad,
-incorporando ademas la fortaleza relativa dentro del sector GICS (RS sector).
+Measures the persistence of recent performance adjusted for volatility, plus the relative strength
+within the GICS sector (sector RS).
 
 Variables:
-    p_skip = Close[t-22]   (precio hace ~1 mes, excluye efecto reversal)
-    M12_1     = (p_skip / Close[t-274]) - 1      retorno bruto 12-1
-    M6_1      = (p_skip / Close[t-148]) - 1      retorno bruto 6-1
-    sigma_12m = std(daily_returns[-274:-22])      volatilidad ventana 12m (excl. skip)
-    sigma_6m  = std(daily_returns[-148:-22])      volatilidad ventana 6m  (excl. skip)
+    p_skip = Close[t-22]   (price ~1 month ago, excludes the reversal effect)
+    M12_1     = (p_skip / Close[t-274]) - 1      raw 12-1 return
+    M6_1      = (p_skip / Close[t-148]) - 1      raw 6-1 return
+    sigma_12m = std(daily_returns[-274:-22])     12m-window volatility (excludes skip)
+    sigma_6m  = std(daily_returns[-148:-22])     6m-window volatility (excludes skip)
 
     M12_1_adj    = M12_1 / sigma_12m
     M6_1_adj     = M6_1  / sigma_6m
-    RS_sector_pct = percentil del retorno 12-1 de la empresa dentro de su sector GICS
-                    en el universo de referencia (escala 0-1)
+    RS_sector_pct = percentile of the company's 12-1 return within its GICS sector in the reference
+                    universe (0-1 scale)
 
     Momentum_Raw = 0.50 * M12_1_adj + 0.25 * M6_1_adj + 0.25 * RS_sector_pct
 
-Normalizacion:
-    z-score robusto (mediana/MAD) frente al universo -> sigmoide -> score 0-10
+Normalization:
+    robust z-score (median/MAD) against the universe -> sigmoid -> 0-10 score
 
-    La normalizacion se aplica UNA SOLA VEZ sobre Momentum_Raw combinado.
-    RS_sector_pct entra como senyal cruda (0-1) antes de normalizar; no se
-    normaliza por separado.
+    Normalization is applied ONCE on the combined Momentum_Raw. RS_sector_pct enters as a raw signal
+    (0-1) before normalizing; it is not normalized separately.
 """
 
 from __future__ import annotations
@@ -35,6 +32,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from app.services.technical.engine.config import (
+    MOMENTUM_LOOKBACK_6M,
+    MOMENTUM_LOOKBACK_12M,
+    MOMENTUM_MIN_SESSIONS,
+    MOMENTUM_SKIP_SESSIONS,
+)
 from app.services.technical.engine.utils.data_loader import load_sector_map_from_fundamental
 from app.services.technical.engine.utils.normalization import (
     assign_signal,
@@ -43,10 +46,6 @@ from app.services.technical.engine.utils.normalization import (
 
 logger = logging.getLogger(__name__)
 
-SKIP_SESSIONS = 21  # ultimo mes a excluir (skip month)
-LOOKBACK_12M = 252  # ventana de formacion 12 meses
-LOOKBACK_6M = 126  # ventana de formacion 6 meses
-MIN_SESSIONS = LOOKBACK_12M + SKIP_SESSIONS + 7  # = 280, con margen
 _UNIVERSE_RAW_CACHE: dict[object, pd.Series] = {}
 
 
@@ -55,49 +54,49 @@ def _universe_cache_key(universe_closes: pd.DataFrame) -> object:
 
 
 # ---------------------------------------------------------------------------
-# Calculo para un unico ticker
+# Single-ticker calculation
 # ---------------------------------------------------------------------------
 
 
 def _momentum_components(closes: pd.Series) -> tuple[float, float, float, float, float, float]:
-    """
-    Calcula (M12_1, M6_1, sigma_12m, sigma_6m, M12_1_adj, M6_1_adj).
+    """Return (M12_1, M6_1, sigma_12m, sigma_6m, M12_1_adj, M6_1_adj).
 
-    Aplica skip month: el numerador es el precio de hace ~21 sesiones (no de ayer)
-    y los denominadores son los precios de hace 252+21 y 126+21 sesiones.
-    La volatilidad se calcula sobre la ventana de formacion (excluye el skip).
+    Applies the skip month: the numerator is the price ~21 sessions ago (not yesterday) and the
+    denominators are the prices 252+21 and 126+21 sessions ago. Volatility is measured over the
+    formation window (excludes the skip).
 
     Raises:
-        ValueError: si la serie tiene menos de MIN_SESSIONS sesiones validas.
+        ValueError: if the series has fewer than MOMENTUM_MIN_SESSIONS valid sessions.
     """
     closes = closes.dropna()
-    if len(closes) < MIN_SESSIONS:
-        raise ValueError(f"Solo {len(closes)} sesiones disponibles; se necesitan {MIN_SESSIONS}.")
+    if len(closes) < MOMENTUM_MIN_SESSIONS:
+        raise ValueError(
+            f"Only {len(closes)} sessions available; {MOMENTUM_MIN_SESSIONS} are required."
+        )
 
     daily_returns = closes.pct_change().dropna()
 
-    p_skip = float(closes.iloc[-SKIP_SESSIONS - 1])  # iloc[-22]
-    p_12m = float(closes.iloc[-LOOKBACK_12M - SKIP_SESSIONS - 1])  # iloc[-274]
-    p_6m = float(closes.iloc[-LOOKBACK_6M - SKIP_SESSIONS - 1])  # iloc[-148]
+    p_skip = float(closes.iloc[-MOMENTUM_SKIP_SESSIONS - 1])  # iloc[-22]
+    p_12m = float(closes.iloc[-MOMENTUM_LOOKBACK_12M - MOMENTUM_SKIP_SESSIONS - 1])  # iloc[-274]
+    p_6m = float(closes.iloc[-MOMENTUM_LOOKBACK_6M - MOMENTUM_SKIP_SESSIONS - 1])  # iloc[-148]
 
     m12_1 = (p_skip / p_12m) - 1.0
     m6_1 = (p_skip / p_6m) - 1.0
 
-    sigma_12m = float(
-        daily_returns.iloc[-LOOKBACK_12M - SKIP_SESSIONS : -SKIP_SESSIONS].std(ddof=0)
-    )
-    sigma_6m = float(daily_returns.iloc[-LOOKBACK_6M - SKIP_SESSIONS : -SKIP_SESSIONS].std(ddof=0))
+    skip = MOMENTUM_SKIP_SESSIONS
+    sigma_12m = float(daily_returns.iloc[-MOMENTUM_LOOKBACK_12M - skip : -skip].std(ddof=0))
+    sigma_6m = float(daily_returns.iloc[-MOMENTUM_LOOKBACK_6M - skip : -skip].std(ddof=0))
 
     if sigma_12m == 0 or np.isnan(sigma_12m):
-        raise ValueError("Volatilidad 12m es cero o NaN.")
+        raise ValueError("12m volatility is zero or NaN.")
     if sigma_6m == 0 or np.isnan(sigma_6m):
-        raise ValueError("Volatilidad 6m es cero o NaN.")
+        raise ValueError("6m volatility is zero or NaN.")
 
     return m12_1, m6_1, sigma_12m, sigma_6m, m12_1 / sigma_12m, m6_1 / sigma_6m
 
 
 # ---------------------------------------------------------------------------
-# Percentil sectorial (componente RS integrado)
+# Sector percentile (integrated RS component)
 # ---------------------------------------------------------------------------
 
 
@@ -107,18 +106,17 @@ def _sector_pcts_for_ticker(
     m12_1: float,
     m6_1: float,
 ) -> tuple[float, float]:
-    """
-    Percentil del retorno 12-1 y 6-1 de la empresa dentro de su sector GICS.
+    """Percentile of the company's 12-1 and 6-1 returns within its GICS sector.
 
-    Devuelve (pct_12_1, pct_6_1) en escala [0, 1].
-    Si no hay datos de sector o hay menos de 2 peers, devuelve (0.5, 0.5).
+    Returns (pct_12_1, pct_6_1) on a [0, 1] scale. If there is no sector data or fewer than 2 peers,
+    returns (0.5, 0.5).
     """
     sector_map = load_sector_map_from_fundamental()
     sector = sector_map.get(ticker, "")
     if not sector:
         return 0.5, 0.5
 
-    valid = universe_closes.count() >= MIN_SESSIONS
+    valid = universe_closes.count() >= MOMENTUM_MIN_SESSIONS
     valid_closes = universe_closes.loc[:, valid]
 
     peers = [t for t in valid_closes.columns if sector_map.get(t, "") == sector]
@@ -126,9 +124,9 @@ def _sector_pcts_for_ticker(
         return 0.5, 0.5
 
     peer_closes = valid_closes[peers]
-    p_skip = peer_closes.iloc[-SKIP_SESSIONS - 1]
-    p_12m = peer_closes.iloc[-LOOKBACK_12M - SKIP_SESSIONS - 1]
-    p_6m = peer_closes.iloc[-LOOKBACK_6M - SKIP_SESSIONS - 1]
+    p_skip = peer_closes.iloc[-MOMENTUM_SKIP_SESSIONS - 1]
+    p_12m = peer_closes.iloc[-MOMENTUM_LOOKBACK_12M - MOMENTUM_SKIP_SESSIONS - 1]
+    p_6m = peer_closes.iloc[-MOMENTUM_LOOKBACK_6M - MOMENTUM_SKIP_SESSIONS - 1]
 
     ret12 = ((p_skip / p_12m) - 1.0).replace([np.inf, -np.inf], np.nan).dropna()
     ret6 = ((p_skip / p_6m) - 1.0).replace([np.inf, -np.inf], np.nan).dropna()
@@ -140,12 +138,10 @@ def _sector_pcts_for_ticker(
 
 
 def _universe_sector_pcts(ret12: pd.Series) -> pd.Series:
-    """
-    Percentil sectorial del retorno 12-1 para todo el universo (vectorizado por sector).
+    """Sector percentile of the 12-1 return for the whole universe (vectorized per sector).
 
-    Para cada ticker calcula que fraccion de empresas del mismo sector GICS tiene
-    un retorno 12-1 inferior (escala [0, 1]).
-    Tickers sin sector o con menos de 2 peers reciben 0.5 (neutral).
+    For each ticker, computes the fraction of companies in the same GICS sector with a lower 12-1
+    return ([0, 1] scale). Tickers without a sector or with fewer than 2 peers get 0.5 (neutral).
     """
     sector_map = load_sector_map_from_fundamental()
     pct_dict: dict[str, float] = {}
@@ -176,41 +172,44 @@ def _universe_sector_pcts(ret12: pd.Series) -> pd.Series:
 
 
 # ---------------------------------------------------------------------------
-# Distribucion del universo (vectorizado)
+# Universe distribution (vectorized)
 # ---------------------------------------------------------------------------
 
 
 def _universe_raw_scores(universe_closes: pd.DataFrame) -> pd.Series:
-    """
-    Calcula Momentum_Raw_Score para todo el universo de forma vectorizada.
+    """Compute Momentum_Raw_Score for the whole universe, vectorized.
 
-    Formula:  0.50 * M12_1_adj + 0.25 * M6_1_adj + 0.25 * RS_sector_pct
-    Aplica el mismo skip month que _momentum_components.
-    Ignora silenciosamente los tickers con datos insuficientes (< MIN_SESSIONS).
+    Formula: 0.50 * M12_1_adj + 0.25 * M6_1_adj + 0.25 * RS_sector_pct
+    Applies the same skip month as ``_momentum_components`` and silently ignores tickers with
+    insufficient data (< MOMENTUM_MIN_SESSIONS).
     """
     cache_key = _universe_cache_key(universe_closes)
     if cache_key in _UNIVERSE_RAW_CACHE:
         return _UNIVERSE_RAW_CACHE[cache_key]
 
-    if len(universe_closes) < MIN_SESSIONS:
+    if len(universe_closes) < MOMENTUM_MIN_SESSIONS:
         return pd.Series(dtype=float)
 
-    valid = universe_closes.count() >= MIN_SESSIONS
+    valid = universe_closes.count() >= MOMENTUM_MIN_SESSIONS
     closes = universe_closes.loc[:, valid]
     returns = closes.pct_change()
 
-    p_skip = closes.iloc[-SKIP_SESSIONS - 1]
-    p_12m = closes.iloc[-LOOKBACK_12M - SKIP_SESSIONS - 1]
-    p_6m = closes.iloc[-LOOKBACK_6M - SKIP_SESSIONS - 1]
+    p_skip = closes.iloc[-MOMENTUM_SKIP_SESSIONS - 1]
+    p_12m = closes.iloc[-MOMENTUM_LOOKBACK_12M - MOMENTUM_SKIP_SESSIONS - 1]
+    p_6m = closes.iloc[-MOMENTUM_LOOKBACK_6M - MOMENTUM_SKIP_SESSIONS - 1]
 
     m12 = (p_skip / p_12m) - 1.0
     m6 = (p_skip / p_6m) - 1.0
 
     sigma_12m = (
-        returns.iloc[-LOOKBACK_12M - SKIP_SESSIONS : -SKIP_SESSIONS].std(ddof=0).replace(0, np.nan)
+        returns.iloc[-MOMENTUM_LOOKBACK_12M - MOMENTUM_SKIP_SESSIONS : -MOMENTUM_SKIP_SESSIONS]
+        .std(ddof=0)
+        .replace(0, np.nan)
     )
     sigma_6m = (
-        returns.iloc[-LOOKBACK_6M - SKIP_SESSIONS : -SKIP_SESSIONS].std(ddof=0).replace(0, np.nan)
+        returns.iloc[-MOMENTUM_LOOKBACK_6M - MOMENTUM_SKIP_SESSIONS : -MOMENTUM_SKIP_SESSIONS]
+        .std(ddof=0)
+        .replace(0, np.nan)
     )
 
     m12_adj = (m12 / sigma_12m).replace([np.inf, -np.inf], np.nan)
@@ -225,7 +224,7 @@ def _universe_raw_scores(universe_closes: pd.DataFrame) -> pd.Series:
 
 
 # ---------------------------------------------------------------------------
-# Funcion principal
+# Main function
 # ---------------------------------------------------------------------------
 
 
@@ -233,26 +232,25 @@ def compute_momentum_block(
     ticker: str,
     universe_closes: pd.DataFrame,
 ) -> dict[str, Any] | None:
-    """
-    Calcula el bloque de Price Momentum (0-10) para el ticker dado.
+    """Compute the Price Momentum block (0-10) for the given ticker.
 
-    Incorpora la fortaleza relativa sectorial (RS) como tercer componente interno:
+    Incorporates the sector relative strength (RS) as a third internal component:
         Momentum_Raw = 0.50 * M12_1_adj + 0.25 * M6_1_adj + 0.25 * RS_sector_pct_12_1
 
     Args:
-        ticker:          Simbolo del activo (debe estar en universe_closes).
-        universe_closes: DataFrame de cierres diarios del universo de referencia
-                         (S&P 500 o MSCI World en USD).
+        ticker:          Asset symbol (must be present in universe_closes).
+        universe_closes: DataFrame of daily closes of the reference universe (S&P 500 or MSCI World
+                         in USD).
 
     Returns:
-        Dict con claves:
+        Dict with keys:
             momentum_12_1, momentum_6_1, vol_12m, vol_6m,
             momentum_12_1_adj, momentum_6_1_adj,
             rs_sector_pct_12_1, rs_sector_pct_6_1, rs_sector_included,
             raw_momentum_score, z_score, normalized_score_0_10, signal, summary.
     """
     if ticker not in universe_closes.columns:
-        raise ValueError(f"Ticker '{ticker}' no encontrado en universe_closes.")
+        raise ValueError(f"Ticker '{ticker}' not found in universe_closes.")
 
     m12_1, m6_1, sigma_12m, sigma_6m, m12_adj, m6_adj = _momentum_components(
         universe_closes[ticker]
@@ -264,7 +262,7 @@ def compute_momentum_block(
     universe_raw = _universe_raw_scores(universe_closes)
     if universe_raw.empty:
         logger.warning(
-            "Bloque 'momentum' devuelve None para %s: distribucion del universo vacia.",
+            "Block 'momentum' returns None for %s: empty universe distribution.",
             ticker,
         )
         return None
@@ -272,7 +270,7 @@ def compute_momentum_block(
     norm = robust_sigmoid_normalize(raw_score, universe_raw)
     if norm is None:
         logger.warning(
-            "Bloque 'momentum' devuelve None para %s: normalizacion robusta insuficiente.",
+            "Block 'momentum' returns None for %s: insufficient robust normalization.",
             ticker,
         )
         return None

@@ -1,17 +1,15 @@
-"""
-block5_confirmation.py
-Bloque 5: Confirmation, peso 15% en el Technical Score.
+"""Block 5: Confirmation — 15% weight in the Technical Score.
 
-Validacion tactica de corto plazo mediante Donchian 20 sesiones y volumen:
+Short-term tactical validation via a 20-session Donchian channel and volume:
     DC_pos = (Close[-1] - low_20) / (high_20 - low_20)
     S_DC   = 2 * DC_pos - 1
     rel_vol = Volume[-1] / mean(Volume[-21:-1])
     S_Vol = S_DC * log(rel_vol)
     Confirmation_Raw = 0.6*S_DC + 0.4*S_Vol
 
-La distribucion del universo usa un proxy basado en precios de cierre porque
-universe_closes no contiene volumen. La normalizacion final usa z-score robusto
-y sigmoide.
+When the universe OHLCV is available the universe distribution uses the same exact formula;
+otherwise it falls back to a close-price proxy (S_DC only, no volume). The final normalization uses
+a robust z-score and a sigmoid.
 """
 
 from __future__ import annotations
@@ -22,6 +20,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from app.services.technical.engine.config import DONCHIAN_WINDOW
 from app.services.technical.engine.utils.data_loader import get_price_history
 from app.services.technical.engine.utils.normalization import (
     assign_signal,
@@ -30,7 +29,6 @@ from app.services.technical.engine.utils.normalization import (
 
 logger = logging.getLogger(__name__)
 
-DONCHIAN_WIN = 20
 _UNIVERSE_RAW_CACHE: dict[object, pd.Series] = {}
 
 
@@ -56,12 +54,12 @@ def _confirmation_components(
     close: pd.Series,
     volume: pd.Series,
 ) -> tuple[float, float, float, float, float, float, float, float]:
-    """Devuelve (high_20, low_20, dc_pos, s_dc, vol_t, vol_20, rel_vol, s_vol)."""
-    high_20 = float(high.iloc[-DONCHIAN_WIN - 1 : -1].max())
-    low_20 = float(low.iloc[-DONCHIAN_WIN - 1 : -1].min())
+    """Return (high_20, low_20, dc_pos, s_dc, vol_t, vol_20, rel_vol, s_vol)."""
+    high_20 = float(high.iloc[-DONCHIAN_WINDOW - 1 : -1].max())
+    low_20 = float(low.iloc[-DONCHIAN_WINDOW - 1 : -1].min())
     price_t = float(close.iloc[-1])
     vol_t = float(volume.iloc[-1])
-    vol_20 = float(volume.iloc[-DONCHIAN_WIN - 1 : -1].mean())
+    vol_20 = float(volume.iloc[-DONCHIAN_WINDOW - 1 : -1].mean())
 
     channel_range = high_20 - low_20
     if channel_range == 0:
@@ -72,12 +70,11 @@ def _confirmation_components(
         s_dc = 2.0 * dc_pos - 1.0
 
     rel_vol = (vol_t / vol_20) if vol_20 > 0 else 1.0
-    # Solo el volumen SUPERIOR a la media confirma la direccion.
-    # log(max(rel_vol, 1.0)) = 0 cuando rel_vol <= 1 (sin penalizacion por volumen bajo),
-    # positivo cuando rel_vol > 1 (amplificacion proporcional).
-    # La formula anterior log(max(rel_vol, 1e-10)) invertia la senal cuando
-    # rel_vol < 1, produciendo scores sistematicamente negativos en dias de
-    # volumen bajo (ej. festivos, apertura de mes).
+    # Only above-average volume confirms the direction.
+    # log(max(rel_vol, 1.0)) = 0 when rel_vol <= 1 (no penalty for low volume),
+    # positive when rel_vol > 1 (proportional amplification).
+    # The previous log(max(rel_vol, 1e-10)) inverted the signal when rel_vol < 1, producing
+    # systematically negative scores on low-volume days (e.g. holidays, month opens).
     log_rel_vol = float(np.log(max(rel_vol, 1.0)))
     s_vol = s_dc * log_rel_vol
 
@@ -88,16 +85,14 @@ def _universe_raw_scores_confirmation(
     universe_closes: pd.DataFrame,
     universe_ohlcv: dict[str, pd.DataFrame] | None = None,
 ) -> pd.Series:
-    """
-    Distribucion de Confirmation_Raw para el universo.
+    """Distribution of Confirmation_Raw for the universe.
 
-    Si universe_ohlcv esta disponible (High/Low/Close/Volume), calcula la misma
-    formula exacta que se usa para cada ticker individual, incluido el termino de
-    volumen con log(max(rel_vol, 1.0)). Esto elimina el sesgo sistematico que
-    causaba que el 88%+ del universo puntuara por debajo de 5.
+    If universe_ohlcv is available (High/Low/Close/Volume), it computes the same exact formula used
+    per ticker, including the volume term with log(max(rel_vol, 1.0)). This removes the systematic
+    bias that pushed 88%+ of the universe below 5.
 
-    Si universe_ohlcv no esta disponible, recae en el proxy de cierres (solo s_dc
-    sin volumen), que es menos preciso pero evita errores.
+    If universe_ohlcv is not available, it falls back to the close-price proxy (S_DC only, no
+    volume), which is less precise but avoids errors.
     """
     cache_key = _universe_cache_key(universe_closes, universe_ohlcv)
     if cache_key in _UNIVERSE_RAW_CACHE:
@@ -107,24 +102,24 @@ def _universe_raw_scores_confirmation(
     if (
         universe_ohlcv is not None
         and all(f in universe_ohlcv for f in required)
-        and len(universe_ohlcv["Close"]) >= DONCHIAN_WIN + 2
+        and len(universe_ohlcv["Close"]) >= DONCHIAN_WINDOW + 2
     ):
         high_df = universe_ohlcv["High"]
         low_df = universe_ohlcv["Low"]
         close_df = universe_ohlcv["Close"]
         vol_df = universe_ohlcv["Volume"]
 
-        valid = close_df.count() >= DONCHIAN_WIN + 2
+        valid = close_df.count() >= DONCHIAN_WINDOW + 2
         high_df = high_df.loc[:, valid]
         low_df = low_df.loc[:, valid]
         close_df = close_df.loc[:, valid]
         vol_df = vol_df.reindex(columns=close_df.columns)
 
-        high_20 = high_df.iloc[-DONCHIAN_WIN - 1 : -1].max(axis=0)
-        low_20 = low_df.iloc[-DONCHIAN_WIN - 1 : -1].min(axis=0)
+        high_20 = high_df.iloc[-DONCHIAN_WINDOW - 1 : -1].max(axis=0)
+        low_20 = low_df.iloc[-DONCHIAN_WINDOW - 1 : -1].min(axis=0)
         price_t = close_df.iloc[-1]
         vol_t = vol_df.iloc[-1]
-        vol_20 = vol_df.iloc[-DONCHIAN_WIN - 1 : -1].mean(axis=0).replace(0, np.nan)
+        vol_20 = vol_df.iloc[-DONCHIAN_WINDOW - 1 : -1].mean(axis=0).replace(0, np.nan)
 
         channel_range = (high_20 - low_20).replace(0, np.nan)
         dc_pos = (price_t - low_20) / channel_range
@@ -135,17 +130,16 @@ def _universe_raw_scores_confirmation(
         s_vol = s_dc * log_rel_vol
         raw = (0.6 * s_dc + 0.4 * s_vol).replace([np.inf, -np.inf], np.nan).dropna()
     else:
-        # Fallback: proxy con cierres (sin volumen). Canal de close es mas estrecho
-        # que el OHLCV real, lo que puede producir un sesgo hacia abajo, pero es
-        # la unica opcion si no hay datos OHLCV completos.
-        if len(universe_closes) < DONCHIAN_WIN + 2:
+        # Fallback: close-price proxy (no volume). The close channel is narrower than the real
+        # OHLCV one, which may bias scores down, but it is the only option without full OHLCV.
+        if len(universe_closes) < DONCHIAN_WINDOW + 2:
             return pd.Series(dtype=float)
-        valid = universe_closes.count() >= DONCHIAN_WIN + 2
+        valid = universe_closes.count() >= DONCHIAN_WINDOW + 2
         closes = universe_closes.loc[:, valid]
         if closes.empty:
             return pd.Series(dtype=float)
-        high_20 = closes.iloc[-DONCHIAN_WIN - 1 : -1].max(axis=0)
-        low_20 = closes.iloc[-DONCHIAN_WIN - 1 : -1].min(axis=0)
+        high_20 = closes.iloc[-DONCHIAN_WINDOW - 1 : -1].max(axis=0)
+        low_20 = closes.iloc[-DONCHIAN_WINDOW - 1 : -1].min(axis=0)
         price_t = closes.iloc[-1]
         channel_range = (high_20 - low_20).replace(0, np.nan)
         dc_pos = (price_t - low_20) / channel_range
@@ -160,7 +154,7 @@ def _ohlcv_from_universe_cache(
     ticker: str,
     universe_ohlcv: dict[str, pd.DataFrame] | None,
 ) -> pd.DataFrame | None:
-    """Construye OHLCV del ticker desde la descarga masiva del universo."""
+    """Build the ticker OHLCV from the bulk universe download."""
     if not universe_ohlcv:
         return None
     required = ("High", "Low", "Close", "Volume")
@@ -180,17 +174,17 @@ def compute_confirmation_block(
     universe_closes: pd.DataFrame,
     universe_ohlcv: dict[str, pd.DataFrame] | None = None,
 ) -> dict[str, Any] | None:
-    """Calcula el bloque de Confirmation (0-10)."""
+    """Compute the Confirmation block (0-10)."""
     ohlcv = _ohlcv_from_universe_cache(ticker, universe_ohlcv)
     if ohlcv is None:
         try:
             ohlcv = get_price_history(ticker, period="3y")
         except Exception as exc:
-            raise ValueError(f"No se pudieron obtener datos OHLCV para '{ticker}': {exc}") from exc
+            raise ValueError(f"Could not fetch OHLCV data for '{ticker}': {exc}") from exc
 
-    if len(ohlcv) < DONCHIAN_WIN + 2:
+    if len(ohlcv) < DONCHIAN_WINDOW + 2:
         raise ValueError(
-            f"{ticker}: solo {len(ohlcv)} sesiones OHLCV; se necesitan al menos {DONCHIAN_WIN + 2}."
+            f"{ticker}: only {len(ohlcv)} OHLCV sessions; at least {DONCHIAN_WINDOW + 2} required."
         )
 
     high_20, low_20, dc_pos, s_dc, vol_t, vol_20, rel_vol, s_vol = _confirmation_components(
@@ -201,7 +195,7 @@ def compute_confirmation_block(
     universe_raw = _universe_raw_scores_confirmation(universe_closes, universe_ohlcv)
     if universe_raw.empty:
         logger.warning(
-            "Bloque 'confirmation' devuelve None para %s: distribucion del universo vacia.",
+            "Block 'confirmation' returns None for %s: empty universe distribution.",
             ticker,
         )
         return None
@@ -209,7 +203,7 @@ def compute_confirmation_block(
     norm = robust_sigmoid_normalize(raw_score, universe_raw)
     if norm is None:
         logger.warning(
-            "Bloque 'confirmation' devuelve None para %s: normalizacion robusta insuficiente.",
+            "Block 'confirmation' returns None for %s: insufficient robust normalization.",
             ticker,
         )
         return None
