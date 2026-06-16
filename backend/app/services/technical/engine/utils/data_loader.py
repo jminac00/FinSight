@@ -17,39 +17,14 @@ import pandas as pd
 import requests
 import yfinance as yf
 
+from app.core.market_data import get_price_history
+
 logger = logging.getLogger(__name__)
 
 # ── Cachés en memoria de sesión ───────────────────────────────────────────────
 _sp500_tickers_cache: list[str] | None = None
 _sector_cache: dict[str, str] = {}  # ticker → nombre de sector
 _last_universe_ohlcv_cache: dict[str, pd.DataFrame] | None = None
-
-
-# ---------------------------------------------------------------------------
-# Precios
-# ---------------------------------------------------------------------------
-
-
-def get_price_history(ticker: str, period: str = "3y") -> pd.DataFrame:
-    """
-    Descarga el histórico OHLCV ajustado para un ticker.
-
-    Returns:
-        DataFrame con columnas Open, High, Low, Close, Volume e índice DatetimeIndex.
-
-    Raises:
-        ValueError: si el ticker no existe o el histórico queda vacío.
-    """
-    data = yf.download(ticker, period=period, auto_adjust=True, progress=False)
-    if data.empty:
-        raise ValueError(f"No se encontraron datos de precios para '{ticker}'.")
-    # yfinance con un solo ticker devuelve columnas planas (no MultiIndex)
-    if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.droplevel(1)
-    data = data.dropna(subset=["Close"])
-    if data.empty:
-        raise ValueError(f"Historico de precios vacio tras eliminar NaN para '{ticker}'.")
-    return data
 
 
 # ---------------------------------------------------------------------------
