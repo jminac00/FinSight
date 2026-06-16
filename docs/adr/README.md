@@ -18,6 +18,7 @@ of the project's evolution.
 | [0004](0004-design-patterns-for-analysis-orchestration.md) | Design patterns for analysis orchestration | Internal architecture design | Accepted |
 | [0005](0005-news-provider-fallback-chain.md) | News provider fallback chain for the sentiment module | Internal architecture design | Accepted |
 | [0006](0006-gru-architecture-no-vmd.md) | GRU without VMD as the deep learning production model | Internal architecture design | Accepted |
+| [0007](0007-fundamental-engine-integration.md) | Fundamental engine integration via vendoring and a precomputed universe | Internal architecture design | Accepted |
 
 ## Format
 
