@@ -1,3 +1,62 @@
+/* Self-hosted Inter Variable — no Google Fonts CDN (avoids sending the user's IP
+   to a third party, RGPD-friendly). */
+@import '@fontsource-variable/inter';
+@import './styles/tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-bg text-ink antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  /* Visible focus for keyboard users only (WCAG 2.4.7 — RNF-16). */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Headings wrap evenly; long prose avoids orphans. */
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+}
+
+@layer components {
+  /* Skip link — first focusable element, jumps to <main> (RNF-16/18). */
+  .skip-link {
+    @apply sr-only;
+  }
+
+  .skip-link:focus-visible {
+    @apply not-sr-only fixed left-4 top-4 z-tooltip rounded-md bg-accent px-4 py-2 text-sm font-medium;
+    color: var(--color-accent-fg);
+  }
+}
+
+/* Honor reduced-motion globally; individual components add tailored fallbacks. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
