@@ -1,12 +1,15 @@
-"""Offline batch script — builds the S&P 500 fundamental universe snapshot.
+"""Offline batch script — builds the fundamental reference universes.
 
-The snapshot is the cross-sectional reference (yields, ratios, growth metrics per company) the
-fundamental module normalizes each ticker against. It takes ~6-8 minutes (yfinance) and is
-refreshed daily by the scheduler; run it manually before a demo on a fresh deploy.
+The universes are the cross-sectional reference (yields, ratios, growth metrics per company) the
+fundamental module normalizes each ticker against. They are committed as frozen seed CSVs in
+engine/data/ and refreshed weekly by the scheduler; run this manually to regenerate the seed.
+
+The MSCI World build needs engine/data/URTH_holdings.csv (the official iShares holdings export).
 
 Usage (from backend/):
-    uv run python scripts/build_fundamental_universe.py
-    uv run python scripts/build_fundamental_universe.py --output path/to/universe.csv
+    uv run python scripts/build_fundamental_universe.py             # both universes
+    uv run python scripts/build_fundamental_universe.py --only sp500
+    uv run python scripts/build_fundamental_universe.py --only msci_world
 """
 
 import argparse
@@ -21,9 +24,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from app.core.config import get_settings  # noqa: E402
+from app.services.fundamental.engine.msci_world import (  # noqa: E402
+    MSCI_UNIVERSE_CSV,
+    build_msci_world_universe,
+)
 from app.services.fundamental.engine.universe import (  # noqa: E402
-    DEFAULT_UNIVERSE_PATH,
+    CACHE_PATH,
     build_universe,
 )
 
@@ -36,12 +42,12 @@ logger = logging.getLogger("fundamental_universe")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build the S&P 500 fundamental universe snapshot.")
+    parser = argparse.ArgumentParser(description="Build the fundamental reference universes.")
     parser.add_argument(
-        "--output",
-        type=Path,
+        "--only",
+        choices=["sp500", "msci_world"],
         default=None,
-        help="Output CSV path (defaults to FUNDAMENTAL_UNIVERSE_PATH or the engine default).",
+        help="Build only the given universe (default: both).",
     )
     parser.add_argument(
         "--delay",
@@ -51,16 +57,15 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    settings = get_settings()
-    output = args.output or (
-        Path(settings.fundamental_universe_path)
-        if settings.fundamental_universe_path
-        else DEFAULT_UNIVERSE_PATH
-    )
+    if args.only in (None, "sp500"):
+        logger.info("Building S&P 500 universe → %s", CACHE_PATH)
+        df = build_universe(delay=args.delay)
+        logger.info("S&P 500 done: %d rows, %d columns", len(df), len(df.columns))
 
-    logger.info("Building fundamental universe → %s", output)
-    df = build_universe(output, delay=args.delay)
-    logger.info("Done: %d rows, %d columns saved to %s", len(df), len(df.columns), output)
+    if args.only in (None, "msci_world"):
+        logger.info("Building MSCI World universe → %s", MSCI_UNIVERSE_CSV)
+        df = build_msci_world_universe(delay=args.delay)
+        logger.info("MSCI World done: %d rows, %d columns", len(df), len(df.columns))
 
 
 if __name__ == "__main__":

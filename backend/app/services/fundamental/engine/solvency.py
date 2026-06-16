@@ -1,17 +1,20 @@
-"""Solvency sub-block, 20% weight in the fundamental score.
+"""
+solvency.py
+Solvency sub-block, 20% weight in the fundamental score.
 
-Interest Coverage is handled conservatively:
-    - interest_expense_ttm is None does not imply absence of debt.
-    - interest_expense_ttm == 0 is only interpreted as no debt when total_debt is null
-      or very low.
+Interest Coverage is treated conservatively:
+    - interest_expense_ttm is None does not imply the absence of debt.
+    - interest_expense_ttm == 0 is only interpreted as no debt if total_debt
+      is null or very low.
 
 Methodology per GICS sector:
-    - Financial Services: excludes DN/EBITDA and D/E (structural debt not comparable with
-      ordinary corporate debt); redistributes over IC (40%), CR (35%), CFO/Debt (25%);
-      composite z-score computed only against sector peers.
-    - Real Estate / Utilities: 5 original ratios with standard weights; the composite raw score
-      is normalized with 80% sector z-score + 20% universe z-score, to reduce the bias caused by
-      comparing against companies with no structural debt.
+    - Financial Services: excludes DN/EBITDA and D/E (structural debt not
+      comparable with ordinary corporate debt); redistributes onto IC (40%),
+      CR (35%), CFO/Debt (25%); composite z-score computed only against sector peers.
+    - Real Estate / Utilities: 5 original ratios with standard weights; the
+      composite raw score is normalized with 80% sector z-score + 20% universe
+      z-score, to reduce the bias from comparing against companies without
+      structural debt.
     - Other sectors: standard methodology (universe z-score).
 """
 
@@ -23,9 +26,18 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from app.services.fundamental.engine.ratio_profiles import SP500_VALIDATED, RatioProfile
 from app.services.fundamental.engine.sanitizer import sanitize_solvency
 
 logger = logging.getLogger(__name__)
+
+# Direction of each ratio when normalizing: inverted = a higher value is worse.
+_INVERTED_RATIOS = frozenset({"dn_ebitda", "debt_to_equity"})
+
+
+def _universe_key(universe_df: pd.DataFrame) -> object:
+    return universe_df.attrs.get("universe_name", id(universe_df))
+
 
 _WEIGHTS: dict[str, float] = {
     "dn_ebitda": 0.30,
@@ -63,7 +75,7 @@ _SECTOR_RAW_CACHE: dict[tuple, pd.Series] = {}
 
 
 # ---------------------------------------------------------------------------
-# Normalization helpers
+# Normalization helpers (unchanged from the previous fix)
 # ---------------------------------------------------------------------------
 
 
@@ -149,7 +161,7 @@ def _combine_z_scores(z_map: dict[str, float | None]) -> float | None:
 
 
 def _combine_z_scores_financial(z_map: dict[str, float | None]) -> float | None:
-    """Combine z-scores with Financial Services weights (no DN/EBITDA, no D/E)."""
+    """Combine z-scores with Financial Services weights (no DN/EBITDA or D/E)."""
     total_weight = 0.0
     weighted_sum = 0.0
     for var, z_val in z_map.items():
@@ -168,7 +180,7 @@ def _get_solvency_methodology(sector: str | None) -> str:
     """Return the solvency methodology for the given GICS sector."""
     if not sector or (isinstance(sector, float) and pd.isna(sector)):
         return "standard"
-    if sector == _FINANCIAL_SECTOR:
+    if sector in (_FINANCIAL_SECTOR, "Financials"):
         return "financial_services_adjusted"
     if sector in _REIT_SECTORS:
         return "reit_adjusted"
@@ -190,7 +202,9 @@ def _solvency_raw_from_values(
     cfo_debt: float | None,
     equity: float | None,
     universe_df: pd.DataFrame,
+    neutral_flags: set[str] | None = None,
 ) -> tuple[float | None, dict[str, float | None]]:
+    neutral_flags = neutral_flags or set()
     dist_dn = _get_distribution(universe_df, _UNIVERSE_COL["dn_ebitda"])
     dist_ic = _get_distribution(universe_df, _UNIVERSE_COL["interest_coverage"])
     dist_cr = _get_distribution(universe_df, _UNIVERSE_COL["current_ratio"])
@@ -198,9 +212,12 @@ def _solvency_raw_from_values(
     dist_cfo = _get_distribution(universe_df, _UNIVERSE_COL["cfo_debt"])
 
     z_dn = _normalize_inverted(dn_ebitda, dist_dn)
-    z_ic = _normalize_direct(int_cov, dist_ic)
+    z_ic = 0.0 if "coverage_bank_no_data" in neutral_flags else _normalize_direct(int_cov, dist_ic)
     z_cr = _normalize_direct(curr_ratio, dist_cr)
-    z_de = -3.0 if (equity is not None and equity < 0) else _normalize_inverted(de, dist_de)
+    if "de_no_data" in neutral_flags:
+        z_de = 0.0
+    else:
+        z_de = -3.0 if (equity is not None and equity < 0) else _normalize_inverted(de, dist_de)
     z_cfo = _normalize_direct(cfo_debt, dist_cfo)
 
     z_map = {
@@ -225,19 +242,25 @@ def _solvency_raw_financial(
     cfo_debt: float | None,
     sector_df: pd.DataFrame,
     universe_df: pd.DataFrame,
+    neutral_flags: set[str] | None = None,
 ) -> tuple[float | None, dict[str, float | None]]:
-    """Raw score for Financial Services: only IC, CR and CFO/Debt.
-
-    DN/EBITDA and D/E are excluded because the structural debt of banks and financials
-    (deposits, debt issuance for intermediation) is not comparable with ordinary corporate debt.
-
-    Reference distribution: sector if it has >= MIN_SECTOR_SIZE valid points for that metric;
-    full universe as fallback (avoids z-scores with a single observation, as happens with
-    interest_coverage in the Financial Services sector).
-
-    cfo_debt <= 0 is treated as None: for large banks yfinance returns operatingCashflow=0
-    systematically (a data artifact, not a real value).
     """
+    Raw score for Financial Services: only IC, CR and CFO/Debt.
+
+    DN/EBITDA and D/E are excluded because the structural debt of banks and
+    financials (deposits, debt issuance for intermediation) is not comparable
+    with ordinary corporate debt.
+
+    Reference distribution: the sector if it has >= MIN_SECTOR_SIZE valid points
+    for that metric; the full universe as a fallback (avoids z-scores with a
+    single observation, as happens with interest_coverage in the Financial
+    Services sector).
+
+    cfo_debt <= 0 is treated as None: for large banks yfinance returns
+    operatingCashflow=0 systematically (a data artifact, not a real value).
+    """
+    neutral_flags = neutral_flags or set()
+
     # cfo_debt = exactly 0.0 is a yfinance artifact for large banks
     cfo_clean: float | None = (
         cfo_debt if (cfo_debt is not None and not pd.isna(cfo_debt) and cfo_debt > 0) else None
@@ -254,7 +277,7 @@ def _solvency_raw_financial(
     dist_cr = _pick_dist("current_ratio")
     dist_cfo = _pick_dist("cfo_debt")
 
-    z_ic = _normalize_direct(int_cov, dist_ic)
+    z_ic = 0.0 if "coverage_bank_no_data" in neutral_flags else _normalize_direct(int_cov, dist_ic)
     z_cr = _normalize_direct(curr_ratio, dist_cr)
     z_cfo = _normalize_direct(cfo_clean, dist_cfo)
 
@@ -308,11 +331,12 @@ def _universe_raw_scores_sector(
     sector: str,
     financial: bool = False,
 ) -> pd.Series:
-    """Distribution of raw scores for companies in the same sector.
+    """
+    Distribution of raw scores for companies in the same sector.
 
-    If financial=True it uses _solvency_raw_financial (IC, CR, CFO/Debt with FS weights)
-    comparing against sector peers. If False it uses the standard 5-ratio logic comparing
-    against the full universe (only the composite composition changes).
+    If financial=True it uses _solvency_raw_financial (IC, CR, CFO/Debt with FS
+    weights) comparing against sector peers. If False it uses the standard 5-ratio
+    logic comparing against the full universe (only the composite composition changes).
     """
     cache_key = (id(universe_df), sector, financial)
     if cache_key in _SECTOR_RAW_CACHE:
@@ -326,7 +350,7 @@ def _universe_raw_scores_sector(
 
     if len(sector_df) < MIN_SECTOR_SIZE:
         logger.info(
-            "Sector '%s' has only %d companies; sector distribution not available.",
+            "Sector '%s' with only %d companies; sector distribution not available.",
             sector,
             len(sector_df),
         )
@@ -370,10 +394,150 @@ def _normalize_composite(raw_score: float | None, universe_raw: pd.Series) -> fl
     clean = wins.replace([np.inf, -np.inf], np.nan).dropna()
     if clean.empty:
         return None
-    # No clip on raw_score: clipping collapses outliers to the same P1/P99 percentile producing
-    # artificial clusters. A more extreme z-score is the correct behavior for a genuinely atypical
-    # company.
+    # No clip on raw_score: clipping collapses outliers to the same P1/P99 percentile,
+    # producing artificial clusters. A more extreme z-score is the correct behavior for
+    # a genuinely atypical company.
     return _z_score(raw_score, wins)
+
+
+# ---------------------------------------------------------------------------
+# Generic per-profile path (profiles != sp500_validated, e.g. global_robust)
+# ---------------------------------------------------------------------------
+#
+# To preserve the S&P 500 EXACTLY, the sp500_validated profile keeps using the
+# original body (dispatched at the start of compute_solvency_score). Other
+# profiles use this flat standard normalization with the profile's weights/columns
+# (e.g. global_robust drops D/E), without the sector methodologies designed for
+# the S&P 500.
+_GENERIC_RAW_CACHE: dict[tuple, pd.Series] = {}
+
+
+def _combine_z_scores_generic(
+    z_map: dict[str, float | None], weights: dict[str, float]
+) -> float | None:
+    total_weight = 0.0
+    weighted_sum = 0.0
+    for var, z_val in z_map.items():
+        if _is_valid_z(z_val):
+            weighted_sum += weights[var] * float(z_val)
+            total_weight += weights[var]
+    return weighted_sum / total_weight if total_weight > 0.0 else None
+
+
+def _solvency_raw_generic(
+    values: dict[str, float | None],
+    equity: float | None,
+    universe_df: pd.DataFrame,
+    weights: dict[str, float],
+    columns: dict[str, str],
+    neutral_flags: set[str] | None = None,
+) -> tuple[float | None, dict[str, float | None]]:
+    neutral_flags = neutral_flags or set()
+    z_map: dict[str, float | None] = {}
+    detail: dict[str, float | None] = {}  # only the active profile's variables
+    for var in weights:
+        dist = _get_distribution(universe_df, columns[var])
+        if var == "interest_coverage" and "coverage_bank_no_data" in neutral_flags:
+            z: float | None = 0.0
+        elif var == "debt_to_equity" and "de_no_data" in neutral_flags:
+            z = 0.0
+        elif var == "debt_to_equity" and equity is not None and equity < 0:
+            z: float | None = -3.0
+        elif var in _INVERTED_RATIOS:
+            z = _normalize_inverted(values.get(var), dist)
+        else:
+            z = _normalize_direct(values.get(var), dist)
+        z_map[var] = z
+        detail[f"z_{var}"] = z
+    return _combine_z_scores_generic(z_map, weights), detail
+
+
+def _universe_raw_scores_generic(
+    universe_df: pd.DataFrame, weights: dict[str, float], columns: dict[str, str]
+) -> pd.Series:
+    cache_key = (_universe_key(universe_df), tuple(weights.items()))
+    if cache_key in _GENERIC_RAW_CACHE:
+        return _GENERIC_RAW_CACHE[cache_key]
+    if universe_df.empty:
+        return pd.Series(dtype=float)
+
+    def row_score(row: pd.Series) -> float | None:
+        values = {var: row.get(columns[var]) for var in weights}
+        raw, _ = _solvency_raw_generic(values, row.get("equity"), universe_df, weights, columns)
+        return raw
+
+    raw_scores = universe_df.apply(row_score, axis=1)
+    raw_scores = raw_scores.replace([np.inf, -np.inf], np.nan).dropna()
+    _GENERIC_RAW_CACHE[cache_key] = raw_scores
+    return raw_scores
+
+
+def _compute_solvency_generic(
+    company_data: dict[str, Any], universe_df: pd.DataFrame, profile: RatioProfile
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "sub_bloque": "solvencia",
+        "ticker": company_data.get("ticker"),
+        "sector": company_data.get("sector"),
+        "data_flags": (
+            list(company_data.get("data_flags") or []) if profile.name != "sp500_validated" else []
+        ),
+    }
+    weights = profile.solvency_weights
+    columns = profile.solvency_columns
+
+    ic_col = columns.get("interest_coverage", "interest_coverage")
+    dist_ic = _get_distribution(universe_df, ic_col)
+    ratios = sanitize_solvency(company_data, dist_ic)
+    equity = company_data.get("equity")
+    neutral_flags = set(company_data.get("data_flags") or [])
+
+    base = {
+        "dn_ebitda": ratios.dn_ebitda,
+        "interest_coverage": ratios.interest_coverage_used,
+        "current_ratio": ratios.current_ratio,
+        "debt_to_equity": ratios.debt_to_equity,
+        "cfo_debt": ratios.cfo_debt,
+    }
+    values = {var: base.get(var) for var in weights}
+
+    raw_score, z_detail = _solvency_raw_generic(
+        values, equity, universe_df, weights, columns, neutral_flags=neutral_flags
+    )
+    solvency_z_score = _normalize_composite(
+        raw_score, _universe_raw_scores_generic(universe_df, weights, columns)
+    )
+
+    result.update(z_detail)
+    result.update(
+        {
+            "dn_ebitda": ratios.dn_ebitda,
+            "interest_coverage": company_data.get("interest_coverage"),
+            "interest_coverage_used": ratios.interest_coverage_used,
+            "interest_coverage_assigned": ratios.interest_coverage_assigned,
+            "interest_coverage_missing": ratios.interest_coverage_missing,
+            "current_ratio": ratios.current_ratio,
+            "debt_to_equity": ratios.debt_to_equity,
+            "cfo_debt": ratios.cfo_debt,
+            "total_debt": company_data.get("total_debt"),
+        }
+    )
+    result["solvency_methodology"] = f"standard_{profile.name}"
+    result["de_negative_equity"] = equity is not None and float(equity) < 0.0
+    result["z_combined"] = raw_score
+    result["solvency_raw_score"] = raw_score
+    result["solvency_z_score"] = solvency_z_score
+
+    if solvency_z_score is None:
+        score: float | None = None
+        signal = "sin_datos"
+    else:
+        score = _z_to_score(solvency_z_score)
+        signal = _signal(score)
+    result["score"] = score
+    result["signal"] = signal
+    result["solvency_summary"] = _build_summary(result)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -384,16 +548,24 @@ def _normalize_composite(raw_score: float | None, universe_raw: pd.Series) -> fl
 def compute_solvency_score(
     company_data: dict[str, Any],
     universe_df: pd.DataFrame,
+    profile: RatioProfile = SP500_VALIDATED,
 ) -> dict[str, Any]:
-    """Compute the solvency score (0-10) with sector-adjusted methodology."""
+    """Compute the solvency score (0-10) with a sector-adjusted methodology."""
+    # Non-validated profiles (e.g. global_robust) use the flat standard
+    # normalization with their weights. The S&P 500 keeps its original body intact.
+    if profile.name != "sp500_validated":
+        return _compute_solvency_generic(company_data, universe_df, profile)
+
     result: dict[str, Any] = {
         "sub_bloque": "solvencia",
         "ticker": company_data.get("ticker"),
         "sector": company_data.get("sector"),
+        "data_flags": [],
     }
 
     dist_ic = _get_distribution(universe_df, _UNIVERSE_COL["interest_coverage"])
     ratios = sanitize_solvency(company_data, dist_ic)
+    neutral_flags: set[str] = set()
 
     dn_ebitda = ratios.dn_ebitda
     int_cov = company_data.get("interest_coverage")
@@ -419,12 +591,12 @@ def compute_solvency_score(
         }
     )
 
-    # --- Determine methodology per sector ---
+    # --- Determine the methodology by sector ---
     sector = company_data.get("sector")
     methodology = _get_solvency_methodology(sector)
     result["solvency_methodology"] = methodology
 
-    # --- Compute raw score and individual z-scores per methodology ---
+    # --- Compute the raw score and individual z-scores per methodology ---
     if methodology == "financial_services_adjusted":
         # Financial Services: only IC, CR, CFO/Debt vs sector peers
         if "sector" in universe_df.columns:
@@ -434,18 +606,30 @@ def compute_solvency_score(
 
         if len(sector_df) >= MIN_SECTOR_SIZE:
             raw_score, z_detail = _solvency_raw_financial(
-                int_cov_used, curr_ratio, cfo_debt, sector_df, universe_df
+                int_cov_used,
+                curr_ratio,
+                cfo_debt,
+                sector_df,
+                universe_df,
+                neutral_flags=neutral_flags,
             )
             sector_raw = _universe_raw_scores_sector(universe_df, _FINANCIAL_SECTOR, financial=True)
             solvency_z_score = _normalize_composite(raw_score, sector_raw)
         else:
-            # Fallback if there are not enough peers
+            # Fallback when there are not enough peers
             logger.warning(
                 "Financial Services with fewer than %d peers; using standard methodology.",
                 MIN_SECTOR_SIZE,
             )
             raw_score, z_detail = _solvency_raw_from_values(
-                dn_ebitda, int_cov_used, curr_ratio, de, cfo_debt, equity, universe_df
+                dn_ebitda,
+                int_cov_used,
+                curr_ratio,
+                de,
+                cfo_debt,
+                equity,
+                universe_df,
+                neutral_flags=neutral_flags,
             )
             solvency_z_score = _normalize_composite(raw_score, _universe_raw_scores(universe_df))
             result["solvency_methodology"] = "standard"
@@ -453,7 +637,14 @@ def compute_solvency_score(
     elif methodology in ("reit_adjusted", "utilities_adjusted"):
         # Real Estate / Utilities: 5 standard ratios, but blend 80% sector + 20% universe
         raw_score, z_detail = _solvency_raw_from_values(
-            dn_ebitda, int_cov_used, curr_ratio, de, cfo_debt, equity, universe_df
+            dn_ebitda,
+            int_cov_used,
+            curr_ratio,
+            de,
+            cfo_debt,
+            equity,
+            universe_df,
+            neutral_flags=neutral_flags,
         )
         z_univ = _normalize_composite(raw_score, _universe_raw_scores(universe_df))
         sector_raw = _universe_raw_scores_sector(universe_df, sector, financial=False)
@@ -469,7 +660,14 @@ def compute_solvency_score(
     else:
         # Standard: original logic
         raw_score, z_detail = _solvency_raw_from_values(
-            dn_ebitda, int_cov_used, curr_ratio, de, cfo_debt, equity, universe_df
+            dn_ebitda,
+            int_cov_used,
+            curr_ratio,
+            de,
+            cfo_debt,
+            equity,
+            universe_df,
+            neutral_flags=neutral_flags,
         )
         solvency_z_score = _normalize_composite(raw_score, _universe_raw_scores(universe_df))
 
@@ -479,7 +677,7 @@ def compute_solvency_score(
     result["solvency_raw_score"] = raw_score
     result["solvency_z_score"] = solvency_z_score
 
-    # Propagate data source to the methodology suffix for Financial Services
+    # Propagate the data source to the methodology suffix for Financial Services
     data_source = company_data.get("solvency_data_source")
     if data_source and result.get("solvency_methodology") == "financial_services_adjusted":
         if data_source == "fmp":
@@ -590,3 +788,34 @@ def _build_summary(r: dict[str, Any]) -> str:
     return (
         f"{ticker} {label} - score de solvencia {score_str} ({signal}). Componentes: {components}."
     )
+
+
+def _run_internal_checks() -> None:
+    universe = pd.DataFrame(
+        {
+            "dn_ebitda": [0.0, 1.0, 2.0, 4.0, 6.0],
+            "interest_coverage": [2.0, 5.0, 10.0, 20.0, 40.0],
+            "currentRatio": [0.8, 1.0, 1.5, 2.0, 3.0],
+            "debtToEquity": [0.0, 0.5, 1.0, 2.0, 4.0],
+            "cfo_debt": [0.1, 0.2, 0.4, 0.8, 1.2],
+        }
+    )
+    missing = compute_solvency_score(
+        {"ticker": "MISS", "interest_coverage": None, "interest_expense_ttm": None},
+        universe,
+    )
+    assert missing["interest_coverage_assigned"] is False
+    assert missing["interest_coverage_missing"] is True
+    assert missing["z_interest_coverage"] is None
+
+    debt_free = compute_solvency_score(
+        {
+            "ticker": "FREE",
+            "interest_coverage": None,
+            "interest_expense_ttm": 0,
+            "total_debt": 0,
+        },
+        universe,
+    )
+    assert debt_free["interest_coverage_assigned"] is True
+    assert debt_free["interest_coverage_used"] is not None

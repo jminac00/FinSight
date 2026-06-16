@@ -36,6 +36,47 @@ def _get_row(df: pd.DataFrame, *names: str) -> pd.Series | None:
     return None
 
 
+def _get_equity(balance_sheet: pd.DataFrame) -> float | None:
+    """Extract stockholders' equity with defensive yfinance fallbacks."""
+    row = _get_row(
+        balance_sheet,
+        "Stockholders Equity",
+        "Total Stockholder Equity",
+        "Total Stockholders Equity",
+        "Common Stock Equity",
+        "Total Equity Gross Minority Interest",
+    )
+    val = _val(row)
+    return val if val is not None and val != 0 else None
+
+
+def _get_gross_profit(financials: pd.DataFrame) -> pd.Series | None:
+    """Extract gross profit with a Revenue - COGS fallback."""
+    gp = _get_row(financials, "Gross Profit", "Gross Income")
+    if gp is not None and gp.notna().sum() >= 2:
+        return gp
+
+    rev = _get_row(financials, "Total Revenue", "Net Revenue", "Operating Revenue")
+    cogs = _get_row(financials, "Cost Of Revenue", "Cost of Goods Sold", "Cost Of Goods Sold")
+    if rev is not None and cogs is not None:
+        derived = rev - cogs
+        if derived.notna().sum() >= 2:
+            return derived
+    return None
+
+
+def _get_interest_expense_debt_only(financials: pd.DataFrame) -> float | None:
+    """For banks, avoid the generic Interest Expense, which includes deposits.
+    Returns None if there is no reliable debt interest expense.
+    """
+    for name in ("Interest Expense Non Operating",):
+        row = _get_row(financials, name)
+        val = _val(row)
+        if val is not None and val > 0:
+            return val
+    return None
+
+
 def _val(series: pd.Series | None, pos: int = 0) -> float | None:
     """Extract the scalar value at position `pos` of a Series (ignoring NaN).
     yfinance orders columns from most recent to oldest, so pos=0 → latest year,
@@ -63,6 +104,17 @@ def _safe_div(a: float | None, b: float | None) -> float | None:
     return result
 
 
+def _is_us_exchange(exchange: str | None, market: str | None) -> bool:
+    """Defensive heuristic to detect a US-market listing."""
+    text = f"{exchange or ''} {market or ''}".upper()
+    return any(token in text for token in ("NYSE", "NASDAQ", "AMEX", "BATS", "US MARKET"))
+
+
+def _has_non_us_suffix(ticker: str) -> bool:
+    """yfinance uses suffixes like .T/.AS/.DE for non-US local listings."""
+    return "." in ticker.strip()
+
+
 def _normalize_debt_to_equity(value: float | None) -> float | None:
     """Normalize the D/E ratio returned by yfinance, which is not consistent across tickers.
     - value > 20  → assume it came ×100 (e.g. 176 → 1.76)
@@ -81,8 +133,8 @@ def compute_growth_trend(values: list[float | None], min_obs: int = 3) -> float 
     """Growth trend via OLS: fit X_t = alpha + beta*t and return beta / mean(|X|).
 
     t=0 for the oldest point, t=n-1 for the most recent.
-    Normalizing by mean(|X|) makes the metric scale-invariant (comparable across companies
-    of different size) and allows direct comparison with CAGR.
+    Normalizing by mean(|X|) makes the metric scale-invariant (comparable across companies of
+    different size) and allows direct comparison with CAGR.
 
     Advantage over CAGR: it uses all available points and works with series that contain
     negative values (e.g. historically negative FCF).
@@ -130,48 +182,21 @@ def _cagr(end: float | None, start: float | None, years: int) -> float | None:
 # ---------------------------------------------------------------------------
 
 
-def get_company_data(ticker_str: str) -> dict[str, Any]:
+def get_company_data(ticker_str: str, apply_c6_fallbacks: bool = True) -> dict[str, Any]:
     """Download and pre-process all fundamental data for a company.
 
     Args:
         ticker_str: Stock symbol (e.g. "AAPL").
+        apply_c6_fallbacks: Enable the extra international/data-quality fallbacks (currency-aware
+            interest coverage, ROE/D&E no-data flags, ...). Disabled for the sp500_validated
+            profile so the validated S&P 500 scores stay stable.
 
     Returns:
-        Dict with the following key sections:
-
-        Identity:
-            ticker, name, sector, industry
-
-        Market data:
-            market_cap, enterprise_value
-
-        TTM income statement:
-            revenue_ttm, gross_profit_ttm, operating_income_ttm,
-            net_income_ttm, ebitda_ttm, interest_expense_ttm
-
-        Balance sheet (latest):
-            total_assets, current_assets, current_liabilities,
-            equity, total_debt, cash, net_debt,
-            shares_outstanding, book_value_total
-
-        TTM cash flow:
-            cfo_ttm, fcf_ttm
-
-        Computed ratios (TTM):
-            operating_margin, gross_margin, roa, roe, gp_a, fcf_ni,
-            current_ratio, debt_to_equity,
-            dn_ebitda, cfo_debt,
-            interest_coverage  (= EBIT / int_exp; no EBITDA fallback),
-            ebitda_yield, earnings_yield, fcf_yield, book_yield
-
-        Growth (annual history):
-            revenue_cagr_3y, fcf_cagr_3y, delta_gross_margin,
-            asset_growth, share_dilution,
-            revenue_cagr_years  (3=real 3y CAGR; 2=only 2y available; 1=YoY proxy),
-            fcf_cagr_years      (same as revenue_cagr_years; None if fcf_cagr_3y is None),
-            fcf_ttm_source      ("cashflow_statement" | "cfo_minus_capex" | "yfinance_info")
+        Dict with identity, market, TTM income statement, balance sheet, TTM cash flow, computed
+        TTM ratios (including roce), valuation yields and historical growth metrics. Missing
+        values are None; data quality issues are recorded in the "data_flags" list.
     """
-    result: dict[str, Any] = {"ticker": ticker_str}
+    result: dict[str, Any] = {"ticker": ticker_str, "data_flags": []}
 
     try:
         t = yf.Ticker(ticker_str)
@@ -197,6 +222,30 @@ def get_company_data(ticker_str: str) -> dict[str, Any]:
         result["name"] = info.get("longName") or info.get("shortName")
         result["sector"] = info.get("sector")
         result["industry"] = info.get("industry")
+        result["country"] = info.get("country")
+        result["exchange"] = info.get("exchange")
+        result["market"] = info.get("market")
+        result["quote_type"] = info.get("quoteType")
+
+        price_currency = (info.get("currency") or "").upper() or None
+        financial_currency = (info.get("financialCurrency") or price_currency or "").upper() or None
+        result["price_currency"] = price_currency
+        result["market_cap_currency"] = price_currency
+        result["ticker_currency"] = price_currency
+        result["financial_currency"] = financial_currency
+
+        country = str(result.get("country") or "")
+        is_foreign_company = bool(country and country.lower() not in {"united states", "usa", "us"})
+        is_us_listing = _is_us_exchange(result.get("exchange"), result.get("market"))
+        result["is_foreign_company"] = is_foreign_company
+        result["is_adr"] = bool(
+            info.get("isAdr")
+            or ("ADR" in str(result.get("name") or "").upper())
+            or (is_foreign_company and is_us_listing and not _has_non_us_suffix(ticker_str))
+        )
+        result["valuation_currency_mismatch"] = bool(
+            price_currency and financial_currency and price_currency != financial_currency
+        )
 
         # ----------------------------------------------------------------
         # MARKET DATA
@@ -214,7 +263,7 @@ def get_company_data(ticker_str: str) -> dict[str, Any]:
         # TTM INCOME STATEMENT
         # ----------------------------------------------------------------
         rev_row = _get_row(income, "Total Revenue")
-        gp_row = _get_row(income, "Gross Profit")
+        gp_row = _get_gross_profit(income)
         oi_row = _get_row(income, "Operating Income", "EBIT")
         ni_row = _get_row(
             income,
@@ -294,9 +343,6 @@ def get_company_data(ticker_str: str) -> dict[str, Any]:
         ta_row = _get_row(balance, "Total Assets")
         ca_row = _get_row(balance, "Current Assets")
         cl_row = _get_row(balance, "Current Liabilities")
-        eq_row = _get_row(
-            balance, "Stockholders Equity", "Total Stockholders Equity", "Common Stock Equity"
-        )
         td_row = _get_row(balance, "Total Debt", "Long Term Debt And Capital Lease Obligation")
         cash_row = _get_row(
             balance, "Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"
@@ -305,7 +351,7 @@ def get_company_data(ticker_str: str) -> dict[str, Any]:
         total_assets = _val(ta_row) or info.get("totalAssets")
         current_assets = _val(ca_row)
         current_liabilities = _val(cl_row)
-        equity = _val(eq_row)
+        equity = _get_equity(balance)
         total_debt = _val(td_row) or info.get("totalDebt") or 0.0
         cash = _val(cash_row) or info.get("totalCash") or 0.0
 
@@ -320,8 +366,8 @@ def get_company_data(ticker_str: str) -> dict[str, Any]:
         )
 
         # Primary: totalStockholderEquity from the balance sheet (avoids issues with dual-class
-        # shares such as BRK-B, where yfinance may return bookValue as the class-A per-share
-        # value instead of the class-B per-share value).
+        # shares such as BRK-B, where yfinance may return bookValue as the class-A per-share value
+        # instead of the class-B per-share value).
         book_value = equity
         if book_value is None:
             bv_ps = info.get("bookValue")
@@ -354,8 +400,8 @@ def get_company_data(ticker_str: str) -> dict[str, Any]:
         # METHODOLOGICAL NOTE: the S&P 500 universe (universe.py) always computes fcf_yield using
         # info.get("freeCashflow") (source "yfinance_info"). If the analyzed company derives its FCF
         # from the cash flow statement or as CFO-Capex, the FCF yield z-score may be slightly biased
-        # because the numerator was computed with a different methodology than the universe's
-        # denominator. The "fcf_ttm_source" key allows identifying and auditing these cases.
+        # because the numerator was computed differently than the universe's denominator. The
+        # "fcf_ttm_source" key allows identifying and auditing these cases.
         fcf_info = info.get("freeCashflow")
         if fcf_info is not None:
             fcf_ttm: float | None = fcf_info
@@ -389,6 +435,8 @@ def get_company_data(ticker_str: str) -> dict[str, Any]:
         )
         result["roa"] = _safe_div(net_income_ttm, total_assets) or info.get("returnOnAssets")
         result["roe"] = _safe_div(net_income_ttm, equity) or info.get("returnOnEquity")
+        if apply_c6_fallbacks and result["roe"] is None and equity is None:
+            result["data_flags"].append("roe_no_data")
         result["gp_a"] = _safe_div(gross_profit_ttm, total_assets)
         result["fcf_ni"] = (
             _safe_div(fcf_ttm, net_income_ttm)
@@ -405,6 +453,8 @@ def get_company_data(ticker_str: str) -> dict[str, Any]:
             if de_raw is not None
             else _safe_div(total_debt, equity)
         )
+        if apply_c6_fallbacks and result["debt_to_equity"] is None and equity is None:
+            result["data_flags"].append("de_no_data")
 
         result["dn_ebitda"] = (
             _safe_div(result["net_debt"], ebitda_ttm)
@@ -421,15 +471,40 @@ def get_company_data(ticker_str: str) -> dict[str, Any]:
             if op_margin_for_ic is not None and revenue_ttm is not None:
                 ic_numerator = op_margin_for_ic * revenue_ttm
                 interest_coverage_source = "operating_margin_x_revenue"
+        if apply_c6_fallbacks and result.get("sector") in ("Financials", "Financial Services"):
+            debt_only_interest = _get_interest_expense_debt_only(income)
+            if debt_only_interest is None:
+                interest_expense_for_coverage = None
+                result["data_flags"].append("coverage_bank_no_data")
+            else:
+                interest_expense_for_coverage = debt_only_interest
+                interest_coverage_source = "interest_expense_non_operating"
+        else:
+            interest_expense_for_coverage = interest_expense_ttm
+
         result["interest_coverage"] = (
-            _safe_div(ic_numerator, interest_expense_ttm)
-            if (interest_expense_ttm is not None and interest_expense_ttm > 0)
+            _safe_div(ic_numerator, interest_expense_for_coverage)
+            if (interest_expense_for_coverage is not None and interest_expense_for_coverage > 0)
             else None
         )
         if result["interest_coverage"] is None:
             interest_coverage_source = "missing"
         result["interest_coverage_source"] = interest_coverage_source
         result["cfo_debt"] = _safe_div(cfo_ttm, total_debt) if total_debt > 0 else None
+
+        # ROCE = EBIT / Capital Employed (= Total Assets − Current Liabilities).
+        # Used only by the global_robust profile (international comparability);
+        # the sp500_validated profile does not consume it.
+        capital_employed = (
+            total_assets - current_liabilities
+            if (total_assets is not None and current_liabilities is not None)
+            else None
+        )
+        result["roce"] = (
+            _safe_div(operating_income_ttm, capital_employed)
+            if (capital_employed is not None and capital_employed > 0)
+            else None
+        )
 
         # Valuation yields (floored to 0)
         result["ebitda_yield"] = max(_safe_div(ebitda_ttm, ev_v) or 0.0, 0.0) if ev_v else None
@@ -448,9 +523,7 @@ def get_company_data(ticker_str: str) -> dict[str, Any]:
         # ----------------------------------------------------------------
 
         # Revenue CAGR 3y → try pos=3, then pos=2 as fallback.
-        # "revenue_cagr_years" records how many real years the CAGR covers:
-        # a 2-year CAGR is more volatile and may bias the z-score vs a universe where
-        # other companies have real 3-year CAGRs.
+        # "revenue_cagr_years" records how many real years the CAGR covers.
         r0, r3, r2 = _val(rev_row, 0), _val(rev_row, 3), _val(rev_row, 2)
         if r0 is not None and r3 is not None:
             result["revenue_cagr_3y"] = _cagr(r0, r3, 3)
@@ -494,6 +567,8 @@ def get_company_data(ticker_str: str) -> dict[str, Any]:
             result["delta_gross_margin"] = gm0 - gm2
         else:
             result["delta_gross_margin"] = None
+            if apply_c6_fallbacks and gp_row is None:
+                result["data_flags"].append("gross_profit_no_data")
 
         # Asset Growth 1y (total assets: current year vs previous year)
         ta0, ta1 = _val(ta_row, 0), _val(ta_row, 1)

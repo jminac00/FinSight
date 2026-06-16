@@ -11,8 +11,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-# Financial sectors: interest coverage and EBITDA are not comparable with industrial
-# companies (banks treat interest as operating income).
+# Financial sectors: interest coverage and EBITDA are not comparable with industrial companies
+# (banks treat interest as operating income).
 _FINANCIAL_SECTORS: frozenset[str] = frozenset(
     {
         "Financial Services",
@@ -66,14 +66,16 @@ class QualityRatios:
 
 @dataclass
 class GrowthRatios:
-    revenue_cagr_3y: float | None
-    fcf_cagr_3y: float | None
-    fcf_cagr_zeroed: bool  # negative base → CAGR not computable → neutral
+    revenue_cagr_3y: float | None  # OLS primary; CAGR fallback (Revenue field)
+    fcf_trend: float | None  # unified FCF metric: OLS if >=3 points, else CAGR fallback
+    fcf_cagr_zeroed: bool  # fcf_trend is None → neutral contribution
     delta_gross_margin: float | None
     asset_growth: float | None
     share_dilution: float | None
-    fcf_cagr_base_negative: bool = False  # FCF CAGR > 500%: extreme base, not interpretable
-    revenue_cagr_outlier: bool = False  # Revenue CAGR > 100% without OLS: outlier
+    fcf_cagr_base_negative: bool = False  # FCF CAGR >500% or extreme OLS: neutralized
+    revenue_cagr_outlier: bool = False  # Revenue CAGR >100% without OLS: outlier
+    fcf_cagr_fallback: float | None = None  # CAGR value used if method='cagr_fallback'
+    fcf_growth_method: str = "insufficient_data"  # 'ols' | 'cagr_fallback' | 'insufficient_data'
 
 
 @dataclass
@@ -170,50 +172,70 @@ def sanitize_quality(data: dict) -> QualityRatios:
 
 
 def sanitize_growth(data: dict) -> GrowthRatios:
-    """Use OLS trends as the primary source; CAGR as fallback only when OLS is unavailable.
-    Detect and neutralize extreme outliers:
+    """FCF: OLS as the primary metric (>= 3 historical points); CAGR as fallback when OLS is not
+    computable and the base is positive.
+      fcf_growth_method = 'ols'               → OLS available and valid
+      fcf_growth_method = 'cagr_fallback'     → OLS absent, CAGR usable
+      fcf_growth_method = 'insufficient_data' → neither available → z = 0
+
+    Revenue: same logic (OLS primary, CAGR fallback).
+    Outlier guards:
       - Revenue CAGR fallback > 100%: revenue_cagr_outlier=True → z = 0
       - FCF CAGR fallback > 500%: fcf_cagr_base_negative=True → z = 0
-        (CAGR > 5x usually signals a very small base or a sign artifact)
-      - OLS trend with |value| > 5.0: neutralized defensively.
+      - Any OLS with |value| > 5.0: neutralized defensively
     """
+    # -- Revenue --------------------------------------------------------------
     rev_trend = data.get("revenue_trend_ols")
-    fcf_trend = data.get("fcf_trend_ols")
-    fcf_cagr_base_negative = False
     revenue_cagr_outlier = False
-
     if rev_trend is None:
         rev_cagr = data.get("revenue_cagr_3y")
         if rev_cagr is not None and abs(float(rev_cagr)) > 1.0:
             revenue_cagr_outlier = True
             rev_cagr = None
         rev_trend = rev_cagr
-
-    if fcf_trend is None:
-        fcf_cagr = data.get("fcf_cagr_3y")
-        if fcf_cagr is not None and abs(float(fcf_cagr)) > 5.0:
-            fcf_cagr_base_negative = True
-            fcf_cagr = None
-        fcf_trend = fcf_cagr
-
-    # Defensive guard for extreme OLS (should not happen with MAD normalization)
     if rev_trend is not None and abs(float(rev_trend)) > 5.0:
         revenue_cagr_outlier = True
         rev_trend = None
-    if fcf_trend is not None and abs(float(fcf_trend)) > 5.0:
-        fcf_cagr_base_negative = True
-        fcf_trend = None
 
-    fcf_cagr_zeroed = fcf_trend is None
+    # -- FCF ------------------------------------------------------------------
+    ols_val = data.get("fcf_trend_ols")
+    cagr_val = data.get("fcf_cagr_3y")
+    fcf_cagr_base_negative = False
+    fcf_cagr_fallback: float | None = None
+    fcf_growth_method: str = "insufficient_data"
+    fcf_trend_val: float | None = None
+
+    if ols_val is not None:
+        ols_f = float(ols_val)
+        if abs(ols_f) > 5.0:
+            # Extreme OLS: aberrant-data signal, neutralize
+            fcf_cagr_base_negative = True
+        else:
+            fcf_trend_val = ols_f
+            fcf_growth_method = "ols"
+    else:
+        # OLS unavailable (< 3 valid historical points)
+        if cagr_val is not None:
+            cagr_f = float(cagr_val)
+            if abs(cagr_f) > 5.0:
+                fcf_cagr_base_negative = True
+            else:
+                fcf_trend_val = cagr_f
+                fcf_cagr_fallback = cagr_f
+                fcf_growth_method = "cagr_fallback"
+        # else: both None → fcf_growth_method = 'insufficient_data' (already set)
+
     return GrowthRatios(
         revenue_cagr_3y=rev_trend,
-        fcf_cagr_3y=fcf_trend,
-        fcf_cagr_zeroed=fcf_cagr_zeroed,
+        fcf_trend=fcf_trend_val,
+        fcf_cagr_zeroed=fcf_trend_val is None,
         delta_gross_margin=data.get("delta_gross_margin"),
         asset_growth=data.get("asset_growth"),
         share_dilution=data.get("share_dilution"),
         fcf_cagr_base_negative=fcf_cagr_base_negative,
         revenue_cagr_outlier=revenue_cagr_outlier,
+        fcf_cagr_fallback=fcf_cagr_fallback,
+        fcf_growth_method=fcf_growth_method,
     )
 
 

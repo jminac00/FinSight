@@ -1,10 +1,12 @@
-"""Download and cache the S&P 500 universe fundamental data required for the cross-sectional
-normalization of the scores.
+"""
+universe.py
+Downloads and caches the S&P 500 universe fundamental data required for the
+cross-sectional normalization of the scores.
 
 Typical usage:
     from app.services.fundamental.engine.universe import load_universe
-    df = load_universe(path)                      # load CSV if it exists, build it otherwise
-    df = build_universe(path)                     # force a full rebuild
+    df = load_universe()          # loads CSV if it exists, downloads otherwise
+    df = load_universe(force_refresh=True)  # forces a re-download
 """
 
 from __future__ import annotations
@@ -20,8 +22,8 @@ from app.services.fundamental.engine.data_fetcher import compute_growth_trend
 
 logger = logging.getLogger(__name__)
 
-# Default cache location inside the engine package; overridable via the caller (settings).
-DEFAULT_UNIVERSE_PATH = Path(__file__).parent / "data" / "sp500_universe.csv"
+# Path of the cache CSV (relative to this module)
+CACHE_PATH = Path(__file__).parent / "data" / "sp500_universe.csv"
 
 # Fields extracted directly from the yfinance .info dict
 _INFO_FIELDS: list[str] = [
@@ -46,9 +48,9 @@ _INFO_FIELDS: list[str] = [
     "currentRatio",
     "debtToEquity",  # D/E × 100 in yfinance
     "totalRevenue",
-    "revenueGrowth",  # YoY growth (proxy to normalize growth)
+    "revenueGrowth",  # YoY growth (proxy for normalizing growth)
     "earningsGrowth",
-    "interestExpense",  # not always available in .info; None if missing
+    "interestExpense",  # not always available in .info; will be None if missing
 ]
 
 # ---------------------------------------------------------------------------
@@ -56,7 +58,7 @@ _INFO_FIELDS: list[str] = [
 # ---------------------------------------------------------------------------
 
 _SECTOR_FALLBACK: dict[str, str] = {
-    # Source: official GICS S&P 500. Extend if new tickers appear with NaN.
+    # Source: official GICS S&P 500. Extend if new tickers with NaN appear.
     "FISV": "Financial Services",  # Fiserv — payment processing
     "BRK-B": "Financial Services",  # Berkshire Hathaway
     "BF-B": "Consumer Defensive",  # Brown-Forman
@@ -70,8 +72,9 @@ _SECTOR_FALLBACK: dict[str, str] = {
 
 
 def _apply_sector_fallback(df: pd.DataFrame) -> pd.DataFrame:
-    """Fill the 'sector' field with hardcoded GICS values for tickers where yfinance returns
-    NaN systematically. Modifies the DataFrame in-place.
+    """
+    Fill the 'sector' field with hardcoded GICS values for tickers where
+    yfinance systematically returns NaN. Modifies the DataFrame in-place.
     """
     if "sector" not in df.columns or "ticker" not in df.columns:
         return df
@@ -109,7 +112,7 @@ def get_sp500_tickers() -> list[str]:
     import requests
 
     url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-    # Wikipedia returns 403 without a browser User-Agent
+    # Wikipedia returns 403 if no browser User-Agent is sent
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -141,9 +144,76 @@ def _safe_div(numerator: float | None, denominator: float | None) -> float | Non
     return numerator / denominator
 
 
+def _get_equity(balance_sheet: pd.DataFrame) -> float | None:
+    """Extract equity with defensive yfinance fallbacks."""
+    if balance_sheet is None or balance_sheet.empty:
+        return None
+    for label in (
+        "Stockholders Equity",
+        "Total Stockholder Equity",
+        "Total Stockholders Equity",
+        "Common Stock Equity",
+        "Total Equity Gross Minority Interest",
+    ):
+        if label in balance_sheet.index:
+            vals = balance_sheet.loc[label].dropna()
+            if not vals.empty:
+                val = float(vals.iloc[0])
+                if not pd.isna(val) and val != 0:
+                    return val
+    return None
+
+
+def _get_gross_profit(financials: pd.DataFrame) -> pd.Series | None:
+    """Extract gross profit with a Revenue - COGS fallback."""
+    if financials is None or financials.empty:
+        return None
+    for label in ("Gross Profit", "Gross Income"):
+        if label in financials.index:
+            series = financials.loc[label]
+            if series.notna().sum() >= 2:
+                return series
+
+    rev = next(
+        (
+            financials.loc[label]
+            for label in ("Total Revenue", "Net Revenue", "Operating Revenue")
+            if label in financials.index
+        ),
+        None,
+    )
+    cogs = next(
+        (
+            financials.loc[label]
+            for label in ("Cost Of Revenue", "Cost of Goods Sold", "Cost Of Goods Sold")
+            if label in financials.index
+        ),
+        None,
+    )
+    if rev is not None and cogs is not None:
+        derived = rev - cogs
+        if derived.notna().sum() >= 2:
+            return derived
+    return None
+
+
+def _get_interest_expense_debt_only(financials: pd.DataFrame) -> float | None:
+    """For banks, avoid the generic Interest Expense if there is no reliable debt line."""
+    if financials is None or financials.empty:
+        return None
+    if "Interest Expense Non Operating" in financials.index:
+        vals = financials.loc["Interest Expense Non Operating"].dropna()
+        if not vals.empty:
+            val = float(vals.iloc[0])
+            if not pd.isna(val) and val > 0:
+                return val
+    return None
+
+
 def _normalize_debt_to_equity(value: float | None) -> float | None:
-    """Normalize the D/E ratio returned by yfinance, which is not consistent across tickers.
-    - value > 20  → assume it came ×100 (e.g. 176 → 1.76)
+    """
+    Normalize the D/E ratio returned by yfinance, which is not consistent across tickers.
+    - value > 20  → assume it comes ×100 (e.g. 176 → 1.76)
     - 0 ≤ value ≤ 20 → already the direct ratio
     - value < 0   → negative equity; returned as-is
     - None        → None
@@ -161,11 +231,14 @@ def _compute_growth_metrics_from_history(
     cf: pd.DataFrame | None = None,
     bs: pd.DataFrame | None = None,
 ) -> dict[str, float | None]:
-    """Compute the five growth variables that require financial history:
-        revenue_cagr_3y, fcf_cagr_3y, delta_gross_margin, asset_growth, share_dilution.
+    """
+    Compute the five growth variables that require financial history:
+        revenue_cagr_3y, fcf_cagr_3y, delta_gross_margin,
+        asset_growth, share_dilution.
 
-    Accepts pre-downloaded statements (inc, cf, bs) to avoid re-downloading when they were
-    already fetched in _extract_ticker_data. If None is passed, it downloads them.
+    Accepts the pre-downloaded statements (inc, cf, bs) to avoid re-downloading
+    when they were already fetched in _extract_ticker_data. If None is passed, it
+    downloads them.
 
     Never raises: on error it returns a dict with all fields set to None.
     """
@@ -236,10 +309,9 @@ def _compute_growth_metrics_from_history(
 
         # ---- Delta Gross Margin (3 years, in percentage points as a decimal) ----
         if inc is not None and not inc.empty:
-            gp_label = "Gross Profit" if "Gross Profit" in inc.index else None
             rev_label = "Total Revenue" if "Total Revenue" in inc.index else None
-            if gp_label and rev_label:
-                gp = inc.loc[gp_label]
+            gp = _get_gross_profit(inc)
+            if gp is not None and rev_label:
                 rev = inc.loc[rev_label]
                 if len(gp) >= 4 and len(rev) >= 4:
                     rev_t, rev_t_3 = float(rev.iloc[0]), float(rev.iloc[3])
@@ -256,7 +328,7 @@ def _compute_growth_metrics_from_history(
                 if ta_t_1 > 0:
                     out["asset_growth"] = (ta_t - ta_t_1) / ta_t_1
 
-        # ---- Share Dilution (annual change of shares outstanding) ----
+        # ---- Share Dilution (annual change in shares outstanding) ----
         if bs is not None and not bs.empty:
             sh_label = next(
                 (
@@ -286,12 +358,13 @@ def _compute_growth_metrics_from_history(
 
 
 def _extract_ticker_data(ticker_str: str) -> dict:
-    """Download the yfinance .info dict for a ticker and compute the derived ratios required for
-    the normalization of the four sub-blocks.
+    """
+    Download the yfinance .info dict for a ticker and compute the derived ratios
+    needed for the normalization of the four sub-blocks.
 
-    The financial statements (income_stmt, cashflow, balance_sheet) are downloaded once and
-    reused both for the quality/solvency ratios and for the growth metrics, since several fields
-    are no longer in .info (yfinance >= 0.2.x):
+    The financial statements (income_stmt, cashflow, balance_sheet) are downloaded
+    once and reused both for the quality/solvency ratios and for the growth
+    metrics, since several fields are no longer in .info (yfinance ≥ 0.2.x):
         - totalAssets      → balance_sheet["Total Assets"]
         - operatingIncome  → income_stmt["EBIT"] / ["Operating Income"]
         - interestExpense  → income_stmt["Interest Expense"] (except financials)
@@ -336,7 +409,7 @@ def _extract_ticker_data(ticker_str: str) -> dict:
                 if not ta_vals.empty:
                     row["totalAssets"] = float(ta_vals.iloc[0])
 
-        # ---- Base quantities ----
+        # ---- Base amounts ----
         mc: float = row["marketCap"] or 0.0
         ev: float = row["enterpriseValue"] or (
             mc + (row["totalDebt"] or 0.0) - (row["totalCash"] or 0.0)
@@ -347,27 +420,21 @@ def _extract_ticker_data(ticker_str: str) -> dict:
         bv_ps: float = row["bookValue"] or 0.0
         shares: float = row["sharesOutstanding"] or 0.0
         ta: float = row["totalAssets"] or 0.0
-        gp: float = row["grossProfits"] or 0.0
+        gp_stmt = _get_gross_profit(inc_stmt)
+        gp: float = row["grossProfits"] or (
+            float(gp_stmt.dropna().iloc[0])
+            if gp_stmt is not None and not gp_stmt.dropna().empty
+            else 0.0
+        )
         td: float = row["totalDebt"] or 0.0
         cash: float = row["totalCash"] or 0.0
         cfo: float = row["operatingCashflow"] or 0.0
 
         # book_value_total: primary source = Stockholders Equity from the balance sheet.
-        # Avoids the dual-class share problem (BRK-B, BF-B) where yfinance may return bookValue
-        # as the class-A value × number of class-B shares, producing an artificially huge
-        # book_yield (e.g. 685% for BRK-B).
-        equity_from_bs: float | None = None
-        if bs_stmt is not None and not bs_stmt.empty:
-            for _eq_label in (
-                "Stockholders Equity",
-                "Total Stockholders Equity",
-                "Common Stock Equity",
-            ):
-                if _eq_label in bs_stmt.index:
-                    _eq_vals = bs_stmt.loc[_eq_label].dropna()
-                    if not _eq_vals.empty:
-                        equity_from_bs = float(_eq_vals.iloc[0])
-                        break
+        # Avoids the dual-class share issue (BRK-B, BF-B) where yfinance may return
+        # bookValue as the class-A value × the number of class-B shares, producing an
+        # artificially huge book_yield (e.g. 685% for BRK-B).
+        equity_from_bs: float | None = _get_equity(bs_stmt)
 
         if equity_from_bs is not None:
             bv_total: float = equity_from_bs
@@ -385,18 +452,20 @@ def _extract_ticker_data(ticker_str: str) -> dict:
         row["ebitda_yield"] = max(_safe_div(ebitda, ev) or 0.0, 0.0) if ev > 0 else None
         row["earnings_yield"] = max(_safe_div(ni, mc) or 0.0, 0.0) if mc > 0 else None
         # The universe FCF always comes from info.get("freeCashflow") (source "yfinance_info").
-        # For maximum consistency in the FCF yield z-score, the analyzed company should use the
-        # same source; see the "fcf_ttm_source" key in data_fetcher.py.
+        # For maximum consistency in the FCF yield z-score, the analyzed company should use
+        # the same source; see the "fcf_ttm_source" key in data_fetcher.py.
         row["fcf_yield"] = max(_safe_div(fcf, mc) or 0.0, 0.0) if mc > 0 else None
         row["book_yield"] = (
             max(_safe_div(bv_total, mc) or 0.0, 0.0) if mc > 0 and bv_total > 0 else None
         )
 
         # ---- Quality ratios ----
+        if row.get("returnOnEquity") is None and equity_from_bs:
+            row["returnOnEquity"] = _safe_div(ni, equity_from_bs)
         row["gp_a"] = _safe_div(gp, ta) if ta > 0 else None  # GP/Assets (Novy-Marx)
         row["fcf_ni"] = _safe_div(fcf, ni) if ni > 0 else None  # FCF/NI; None if NI<0
 
-        # ---- Growth columns (reuses already downloaded statements) ----
+        # ---- Growth columns (reuses already-downloaded statements) ----
         growth_metrics = _compute_growth_metrics_from_history(
             ticker_obj,
             inc=inc_stmt,
@@ -417,9 +486,9 @@ def _extract_ticker_data(ticker_str: str) -> dict:
 
         # Interest Coverage = EBIT / interest expense.
         # Hierarchy: info["operatingIncome"] → income_stmt["EBIT"] → margin × revenue.
-        # interestExpense: info → income_stmt (except financial sector).
-        # EBITDA is NOT used as fallback because it overstates coverage in capital-intensive
-        # sectors and breaks universe comparability.
+        # interestExpense: info → income_stmt (except the financial sector).
+        # EBITDA is NOT used as a fallback because it overestimates coverage in
+        # capital-intensive sectors and breaks the universe comparability.
         op_income: float | None = info.get("operatingIncome") or info.get("ebit")
         if op_income is None and inc_stmt is not None and not inc_stmt.empty:
             for _label in ("EBIT", "Operating Income", "Total Operating Income As Reported"):
@@ -437,18 +506,19 @@ def _extract_ticker_data(ticker_str: str) -> dict:
                 op_income = op_margin * rev_ic
 
         # interestExpense: .info no longer includes it reliably.
-        # Fallback: income_stmt, but only for non-financial companies (for banks, "Interest
-        # Expense" is payment on deposits, not corporate debt cost).
+        # Fallback: income_stmt, but only for non-financial companies (for banks,
+        # "Interest Expense" is payment on deposits, not the cost of corporate debt).
         int_exp_raw: float | None = row.get("interestExpense")
-        if int_exp_raw is None and inc_stmt is not None and not inc_stmt.empty:
-            sector_str: str = row.get("sector") or ""
-            if sector_str not in ("Financials", "Financial Services"):
-                if "Interest Expense" in inc_stmt.index:
-                    _ie_vals = inc_stmt.loc["Interest Expense"].dropna()
-                    if not _ie_vals.empty:
-                        _ie_v = float(_ie_vals.iloc[0])
-                        if not pd.isna(_ie_v):
-                            int_exp_raw = _ie_v
+        sector_str: str = row.get("sector") or ""
+        if sector_str in ("Financials", "Financial Services"):
+            int_exp_raw = _get_interest_expense_debt_only(inc_stmt)
+        elif int_exp_raw is None and inc_stmt is not None and not inc_stmt.empty:
+            if "Interest Expense" in inc_stmt.index:
+                _ie_vals = inc_stmt.loc["Interest Expense"].dropna()
+                if not _ie_vals.empty:
+                    _ie_v = float(_ie_vals.iloc[0])
+                    if not pd.isna(_ie_v):
+                        int_exp_raw = _ie_v
         int_exp: float = abs(int_exp_raw or 0.0)
 
         row["interest_coverage"] = (
@@ -457,6 +527,25 @@ def _extract_ticker_data(ticker_str: str) -> dict:
 
         row["cfo_debt"] = _safe_div(cfo, td) if td > 0 else None
 
+        # ROCE = EBIT / Capital Employed (= Total Assets − Current Liabilities).
+        # Consumed only by the global_robust profile (international universes).
+        curr_liab: float | None = None
+        if bs_stmt is not None and not bs_stmt.empty:
+            for _cl_label in ("Current Liabilities", "Total Current Liabilities"):
+                if _cl_label in bs_stmt.index:
+                    _cl_vals = bs_stmt.loc[_cl_label].dropna()
+                    if not _cl_vals.empty:
+                        curr_liab = float(_cl_vals.iloc[0])
+                        break
+        capital_employed = ta - curr_liab if (ta and curr_liab is not None) else None
+        row["roce"] = (
+            _safe_div(op_income, capital_employed)
+            if (op_income is not None and capital_employed and capital_employed > 0)
+            else None
+        )
+
+        if row.get("debtToEquity") is None and equity_from_bs:
+            row["debtToEquity"] = _safe_div(td, equity_from_bs)
         row["debtToEquity"] = _normalize_debt_to_equity(row["debtToEquity"])
 
     except Exception as exc:  # noqa: BLE001
@@ -470,22 +559,35 @@ def _extract_ticker_data(ticker_str: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def build_universe(path: Path | None = None, delay: float = 0.6) -> pd.DataFrame:
-    """Download fundamental data for all S&P 500 constituents and save the result to CSV.
+def build_universe(delay: float = 0.6) -> pd.DataFrame:
+    """
+    Download fundamental data for every S&P 500 constituent and save the result
+    to CSV for later use.
 
     Args:
-        path:  Output CSV path; defaults to DEFAULT_UNIVERSE_PATH.
         delay: Seconds to wait between requests (avoids rate-limiting).
+               Raised from 0.3 to 0.6 because there are now more calls per ticker
+               (income_stmt + cashflow + balance_sheet besides .info).
 
     Returns:
         DataFrame with one row per ticker and all computed metrics.
 
     Estimated time: ~6-8 minutes for the 503 tickers with delay=0.6.
+
+    FCF consistency:
+        The universe FCF always comes from info.get("freeCashflow") (yfinance_info).
+        The analyzed company (data_fetcher.py) may use the cashflow statement or
+        CFO-Capex if available. This may introduce a minor bias in the FCF yield
+        z-score. See the "fcf_ttm_source" key in the output of get_company_data().
+
+    IMPORTANT — CSV regeneration:
+        If any formula in this module is changed (e.g. interest_coverage,
+        debtToEquity, growth metrics), the cached CSV becomes stale.
+        Regenerate with load_universe(force_refresh=True).
     """
-    output_path = path or DEFAULT_UNIVERSE_PATH
     tickers = get_sp500_tickers()
     total = len(tickers)
-    logger.info("Starting download of %d tickers (~%.0f min)...", total, total * delay / 60)
+    logger.info("Starting download of %d tickers (approx. %.0f min)...", total, total * delay / 60)
 
     rows: list[dict] = []
     for i, ticker in enumerate(tickers, start=1):
@@ -495,29 +597,202 @@ def build_universe(path: Path | None = None, delay: float = 0.6) -> pd.DataFrame
         time.sleep(delay)
 
     df = pd.DataFrame(rows)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(output_path, index=False)
-    logger.info("Universe saved to %s (%d rows, %d columns)", output_path, len(df), len(df.columns))
+    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(CACHE_PATH, index=False)
+    logger.info("Universe saved to %s (%d rows, %d columns)", CACHE_PATH, len(df), len(df.columns))
     return df
 
 
-def load_universe(path: Path | None = None, force_refresh: bool = False) -> pd.DataFrame:
-    """Load the S&P 500 universe from the cached CSV.
-    If the CSV does not exist (or force_refresh=True) it calls build_universe().
+def patch_missing_ratios(delay: float = 0.3) -> pd.DataFrame:
+    """
+    Patch missing columns in the existing CSV without fully regenerating it.
+
+    Only downloads balance_sheet (for totalAssets → gp_a) and income_stmt (for
+    operatingIncome + interestExpense → interest_coverage) of the tickers where
+    those columns are NaN. Much faster than a full force_refresh (~3 min).
 
     Args:
-        path:          CSV path; defaults to DEFAULT_UNIVERSE_PATH.
+        delay: Seconds between requests (avoids rate-limiting). Default 0.3 s,
+               enough for 2 statements per ticker.
+
+    Returns:
+        Updated DataFrame (also overwrites the CSV).
+    """
+    if not CACHE_PATH.exists():
+        logger.warning("CSV does not exist; use load_universe(force_refresh=True) first.")
+        return build_universe()
+
+    df = pd.read_csv(CACHE_PATH)
+    logger.info("CSV loaded: %d rows, %d columns", len(df), len(df.columns))
+
+    # Add the totalAssets column if it does not exist (to avoid KeyError)
+    if "totalAssets" not in df.columns:
+        df["totalAssets"] = None
+
+    need_gp_a = df["gp_a"].isna() if "gp_a" in df.columns else pd.Series([True] * len(df))
+    need_ic = (
+        df["interest_coverage"].isna()
+        if "interest_coverage" in df.columns
+        else pd.Series([True] * len(df))
+    )
+    targets = df[need_gp_a | need_ic]["ticker"].tolist()
+    logger.info(
+        "Tickers to patch: %d (gp_a: %d, interest_coverage: %d)",
+        len(targets),
+        need_gp_a.sum(),
+        need_ic.sum(),
+    )
+
+    for i, tkr in enumerate(targets, start=1):
+        try:
+            t = yf.Ticker(tkr)
+            info = t.info
+            sector_str: str = info.get("sector") or ""
+
+            # ---- gp_a: grossProfits / totalAssets ----
+            gp = info.get("grossProfits")
+            ta_val: float | None = None
+            try:
+                bs = t.balance_sheet
+                if bs is not None and not bs.empty and "Total Assets" in bs.index:
+                    ta_s = bs.loc["Total Assets"].dropna()
+                    if not ta_s.empty:
+                        ta_val = float(ta_s.iloc[0])
+            except Exception:
+                pass
+            if gp is not None and ta_val:
+                idx = df.index[df["ticker"] == tkr]
+                df.loc[idx, "totalAssets"] = ta_val
+                df.loc[idx, "gp_a"] = gp / ta_val
+
+            # ---- interest_coverage: EBIT / interest_expense ----
+            op_income: float | None = None
+            int_exp_val: float | None = None
+            try:
+                inc = t.income_stmt
+                if inc is not None and not inc.empty:
+                    for _lbl in ("EBIT", "Operating Income", "Total Operating Income As Reported"):
+                        if _lbl in inc.index:
+                            _v = inc.loc[_lbl].dropna()
+                            if not _v.empty:
+                                _fv = float(_v.iloc[0])
+                                if not pd.isna(_fv):
+                                    op_income = _fv
+                                    break
+                    if sector_str not in ("Financials", "Financial Services"):
+                        if "Interest Expense" in inc.index:
+                            _ie = inc.loc["Interest Expense"].dropna()
+                            if not _ie.empty:
+                                _iev = float(_ie.iloc[0])
+                                if not pd.isna(_iev):
+                                    int_exp_val = abs(_iev)
+            except Exception:
+                pass
+
+            # Fallback op_income via margin × revenue
+            if op_income is None:
+                row_data = df[df["ticker"] == tkr].iloc[0]
+                op_m = row_data.get("operatingMargins")
+                rev = row_data.get("totalRevenue")
+                if op_m and rev:
+                    op_income = float(op_m) * float(rev)
+
+            if op_income is not None and int_exp_val and int_exp_val > 0:
+                idx = df.index[df["ticker"] == tkr]
+                df.loc[idx, "interest_coverage"] = op_income / int_exp_val
+
+        except Exception as exc:
+            logger.debug("Patch failed for %s: %s", tkr, exc)
+
+        if i % 50 == 0:
+            logger.info("Patch progress: %d / %d", i, len(targets))
+        time.sleep(delay)
+
+    df.to_csv(CACHE_PATH, index=False)
+    gp_pct = df["gp_a"].notna().mean() * 100 if "gp_a" in df.columns else 0
+    ic_pct = (
+        df["interest_coverage"].notna().mean() * 100 if "interest_coverage" in df.columns else 0
+    )
+    logger.info(
+        "Patch completed. gp_a: %.1f%% non-null, interest_coverage: %.1f%% non-null", gp_pct, ic_pct
+    )
+    return df
+
+
+def patch_ols_trends(delay: float = 0.3) -> pd.DataFrame:
+    """
+    Add the revenue_trend_ols and fcf_trend_ols columns to the existing CSV.
+
+    Downloads income_stmt and cashflow only for the tickers where either of the
+    two columns is NaN (or the column does not exist yet). Much faster than a full
+    force_refresh.
+
+    Args:
+        delay: Seconds between requests. Default 0.3 s.
+
+    Returns:
+        Updated DataFrame (also overwrites the CSV).
+    """
+    if not CACHE_PATH.exists():
+        logger.warning("CSV does not exist; use load_universe(force_refresh=True) first.")
+        return build_universe()
+
+    df = pd.read_csv(CACHE_PATH)
+
+    for col in ("revenue_trend_ols", "fcf_trend_ols"):
+        if col not in df.columns:
+            df[col] = None
+
+    need = df["revenue_trend_ols"].isna() | df["fcf_trend_ols"].isna()
+    targets = df[need]["ticker"].tolist()
+    logger.info("Tickers to patch OLS: %d", len(targets))
+
+    for i, tkr in enumerate(targets, start=1):
+        try:
+            t = yf.Ticker(tkr)
+            metrics = _compute_growth_metrics_from_history(t)
+            idx = df.index[df["ticker"] == tkr]
+            df.loc[idx, "revenue_trend_ols"] = metrics["revenue_trend_ols"]
+            df.loc[idx, "fcf_trend_ols"] = metrics["fcf_trend_ols"]
+        except Exception as exc:
+            logger.debug("OLS patch failed for %s: %s", tkr, exc)
+
+        if i % 50 == 0:
+            logger.info("OLS patch progress: %d / %d", i, len(targets))
+        time.sleep(delay)
+
+    df.to_csv(CACHE_PATH, index=False)
+    rev_pct = df["revenue_trend_ols"].notna().mean() * 100
+    fcf_pct = df["fcf_trend_ols"].notna().mean() * 100
+    logger.info(
+        "OLS patch completed. revenue_trend_ols: %.1f%% non-null, fcf_trend_ols: %.1f%% non-null",
+        rev_pct,
+        fcf_pct,
+    )
+    return df
+
+
+def load_universe(force_refresh: bool = False) -> pd.DataFrame:
+    """
+    Load the S&P 500 universe from the cached CSV.
+    If the CSV does not exist (or force_refresh=True) it runs build_universe().
+
+    Args:
         force_refresh: If True, ignore the cache and re-download everything.
 
     Returns:
         DataFrame with one row per ticker and all fundamental metrics.
+
+    Note: if any metric formula in _extract_ticker_data() has been modified
+    (e.g. interest_coverage, debtToEquity), the cached CSV reflects the old logic.
+    In that case pass force_refresh=True to regenerate the full universe.
+    To only patch gp_a and interest_coverage: use patch_missing_ratios() (~3 min).
     """
-    cache_path = path or DEFAULT_UNIVERSE_PATH
-    if not force_refresh and cache_path.exists():
-        logger.info("Loading universe from cache: %s", cache_path)
-        df = pd.read_csv(cache_path)
+    if not force_refresh and CACHE_PATH.exists():
+        logger.info("Loading universe from cache: %s", CACHE_PATH)
+        df = pd.read_csv(CACHE_PATH)
         df = _apply_sector_fallback(df)
         logger.info("Universe loaded: %d companies, %d columns", len(df), len(df.columns))
         return df
 
-    return build_universe(cache_path)
+    return build_universe()
