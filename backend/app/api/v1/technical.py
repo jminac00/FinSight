@@ -1,45 +1,63 @@
 import re
-from datetime import UTC, datetime
+from functools import lru_cache
+from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.core.config import get_settings
+from app.llm.factory import get_llm_service
 from app.models.technical import TechnicalResult
+from app.services.technical.engine.universe_manager import TechnicalUniverseManager
+from app.services.technical.service import (
+    TechnicalAnalysisError,
+    TechnicalService,
+    TechnicalUniverseNotReadyError,
+)
 
 router = APIRouter()
 
-_TICKER_RE = re.compile(r"^[A-Z0-9]{2,5}$")
+# International symbols carry exchange suffixes and class separators
+_TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,14}$")
 
 
 def _validate_ticker(ticker: str) -> str:
     t = ticker.upper().strip()
     if not _TICKER_RE.match(t):
-        raise HTTPException(status_code=422, detail="ticker must be 2–5 alphanumeric characters")
+        raise HTTPException(status_code=422, detail="invalid ticker symbol")
     return t
 
 
-@router.get("/technical/{ticker}", response_model=TechnicalResult)
-async def get_technical(ticker: str) -> TechnicalResult:
-    """Return mock technical analysis for the given ticker."""
-    ticker = _validate_ticker(ticker)
-    return TechnicalResult(
-        score=6.5,
-        indicators={
-            "rsi_14": 58.3,
-            "macd": 1.24,
-            "macd_signal": 0.98,
-            "macd_histogram": 0.26,
-            "bb_upper": 194.20,
-            "bb_middle": 182.30,
-            "bb_lower": 170.40,
-            "sma_20": 180.15,
-            "sma_50": 175.80,
-            "ema_20": 181.40,
-        },
-        llm_analysis=(
-            f"El análisis técnico de {ticker} muestra señales moderadamente alcistas. "
-            "El RSI en 58 indica momentum positivo sin estar sobrecomprado. "
-            "El MACD presenta cruce alcista reciente por encima de la señal, "
-            "confirmando la tendencia a corto plazo."
-        ),
-        calculated_at=datetime.now(tz=UTC),
+@lru_cache
+def get_technical_service() -> TechnicalService:
+    """Return the singleton TechnicalService wired from settings."""
+    settings = get_settings()
+    data_dir = settings.technical_data_dir.strip()
+    manager = TechnicalUniverseManager(data_dir=data_dir) if data_dir else None
+    return TechnicalService(
+        llm_service=get_llm_service(),
+        cache_ttl=settings.cache_ttl_technical,
+        manager=manager,
     )
+
+
+@router.get("/technical/{ticker}", response_model=TechnicalResult)
+async def get_technical(
+    ticker: str,
+    mode: Literal["auto", "domestic", "global"] = Query(default="auto"),
+    force_refresh: bool = Query(default=False),
+    service: TechnicalService = Depends(get_technical_service),
+) -> TechnicalResult:
+    """Return the technical analysis for the given ticker.
+
+    `mode` selects the reference universe: auto (S&P 500 if the ticker is in the index, otherwise
+    MSCI World), domestic (S&P 500) or global (MSCI World).
+    """
+    ticker = _validate_ticker(ticker)
+    try:
+        return await service.analyze(ticker, mode=mode, force_refresh=force_refresh)
+    except TechnicalUniverseNotReadyError as exc:
+        raise HTTPException(
+            status_code=503, detail="Technical universe is being prepared; try again shortly"
+        ) from exc
+    except TechnicalAnalysisError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

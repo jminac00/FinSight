@@ -56,6 +56,12 @@ async def daily_technical_refresh() -> None:
             logger.exception(
                 "Technical %s universe rebuild failed; keeping existing snapshot", universe
             )
+    try:
+        from app.api.v1.technical import get_technical_service
+
+        get_technical_service.cache_clear()
+    except Exception:
+        logger.exception("Could not clear the technical service cache")
 
 
 async def daily_model_update() -> None:

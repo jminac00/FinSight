@@ -8,7 +8,7 @@ from app.models.deep_learning import DLResult, ModelMetrics
 from app.models.fundamental import FundamentalResult
 from app.models.report import ReportResponse
 from app.models.sentiment import NewsItem, SentimentResult
-from app.models.technical import TechnicalResult
+from app.models.technical import TechnicalBlockScores, TechnicalResult
 
 router = APIRouter()
 
@@ -75,7 +75,11 @@ async def _mock_technical(ticker: str) -> TechnicalResult:
     await asyncio.sleep(0)
     return TechnicalResult(
         score=6.5,
-        indicators={"rsi_14": 58.3, "macd": 1.24, "sma_50": 175.80},
+        signal="neutral",
+        block_scores=TechnicalBlockScores(
+            momentum=7.1, trend=6.0, risk_stability=5.5, confirmation=6.8
+        ),
+        indicators={"universe": "sp500", "score_reliable": True},
         llm_analysis=f"El análisis técnico de {ticker} muestra señales moderadamente alcistas.",
         calculated_at=datetime.now(tz=UTC),
     )
