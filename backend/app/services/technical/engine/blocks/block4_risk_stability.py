@@ -1,17 +1,15 @@
-"""
-block4_risk_stability.py
-Bloque 4: Risk / Stability, peso 20% en el Technical Score.
+"""Block 4: Risk / Stability — 20% weight in the Technical Score.
 
-Evalua la robustez del movimiento en las ultimas 126 sesiones:
+Evaluates the robustness of the move over the last 126 sessions:
     S_DD      = -abs(max_drawdown)
     S_Risk    = -downside_volatility
-    S_Clarity = R2 de la regresion de log-precios
+    S_Clarity = R2 of the log-price regression
 
-Cada componente se normaliza por separado frente al universo:
+Each component is normalized separately against the universe:
     Risk Stability Raw = 0.4*z_S_DD + 0.3*z_S_Risk + 0.3*z_S_Clarity
 
-Despues se aplica la normalizacion comun al score compuesto:
-    raw -> z-score robusto -> sigmoide -> escala 0-10
+Then the shared normalization is applied to the composite score:
+    raw -> robust z-score -> sigmoid -> 0-10 scale
 """
 
 from __future__ import annotations
@@ -23,6 +21,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from app.services.technical.engine.config import RISK_MIN_NEG_RETURNS, RISK_WINDOW
 from app.services.technical.engine.utils.normalization import (
     assign_signal,
     compute_robust_zscore,
@@ -31,8 +30,6 @@ from app.services.technical.engine.utils.normalization import (
 
 logger = logging.getLogger(__name__)
 
-WINDOW = 126
-MIN_NEG_RETS = 10
 _UNIVERSE_COMPONENTS_CACHE: dict[object, pd.DataFrame] = {}
 _UNIVERSE_RAW_CACHE: dict[object, pd.Series] = {}
 
@@ -44,10 +41,10 @@ def _universe_cache_key(universe_closes: pd.DataFrame) -> object:
 def _risk_stability_components(
     closes: pd.Series,
 ) -> tuple[float, float, float, float, float, float]:
-    """Devuelve (max_dd, downside_vol, r2, s_dd, s_risk, s_clarity)."""
-    closes = closes.dropna().iloc[-WINDOW:]
-    if len(closes) < WINDOW:
-        raise ValueError(f"Solo {len(closes)} sesiones; se necesitan {WINDOW}.")
+    """Return (max_dd, downside_vol, r2, s_dd, s_risk, s_clarity)."""
+    closes = closes.dropna().iloc[-RISK_WINDOW:]
+    if len(closes) < RISK_WINDOW:
+        raise ValueError(f"Only {len(closes)} sessions; {RISK_WINDOW} are required.")
 
     rolling_max = closes.expanding().max()
     drawdowns = (closes - rolling_max) / rolling_max
@@ -56,7 +53,7 @@ def _risk_stability_components(
 
     daily_rets = closes.pct_change().dropna()
     neg_rets = daily_rets[daily_rets < 0]
-    if len(neg_rets) >= MIN_NEG_RETS:
+    if len(neg_rets) >= RISK_MIN_NEG_RETURNS:
         downside_vol = float(neg_rets.std(ddof=0))
     else:
         downside_vol = float(daily_rets.std(ddof=0))
@@ -72,21 +69,21 @@ def _risk_stability_components(
 
 
 def _robust_z(value: float, universe_series: pd.Series) -> float | None:
-    """Z-score robusto de un componente contra su distribucion del universo."""
+    """Robust z-score of a component against its universe distribution."""
     return compute_robust_zscore(value, universe_series)
 
 
 def _universe_components_risk(universe_closes: pd.DataFrame) -> pd.DataFrame:
-    """Calcula S_DD, S_Risk y S_Clarity para el universo."""
+    """Compute S_DD, S_Risk and S_Clarity for the universe."""
     cache_key = _universe_cache_key(universe_closes)
     if cache_key in _UNIVERSE_COMPONENTS_CACHE:
         return _UNIVERSE_COMPONENTS_CACHE[cache_key]
 
-    if len(universe_closes) < WINDOW:
+    if len(universe_closes) < RISK_WINDOW:
         return pd.DataFrame(columns=["s_dd", "s_risk", "s_clarity"])
 
-    valid = universe_closes.count() >= WINDOW
-    closes = universe_closes.loc[:, valid].iloc[-WINDOW:]
+    valid = universe_closes.count() >= RISK_WINDOW
+    closes = universe_closes.loc[:, valid].iloc[-RISK_WINDOW:]
     if closes.empty:
         return pd.DataFrame(columns=["s_dd", "s_risk", "s_clarity"])
 
@@ -96,7 +93,7 @@ def _universe_components_risk(universe_closes: pd.DataFrame) -> pd.DataFrame:
     s_dd_univ = -max_dd_univ.abs()
 
     log_p = np.log(closes.values.astype(float))
-    t_arr = np.arange(WINDOW, dtype=float)
+    t_arr = np.arange(RISK_WINDOW, dtype=float)
     t_c = t_arr - t_arr.mean()
     t_ss = float((t_c**2).sum())
     y_bar = log_p.mean(axis=0)
@@ -113,7 +110,7 @@ def _universe_components_risk(universe_closes: pd.DataFrame) -> pd.DataFrame:
         neg = dr[dr < 0]
         if len(dr) < 2:
             continue
-        dv = float(neg.std(ddof=0)) if len(neg) >= MIN_NEG_RETS else float(dr.std(ddof=0))
+        dv = float(neg.std(ddof=0)) if len(neg) >= RISK_MIN_NEG_RETURNS else float(dr.std(ddof=0))
         s_risk_dict[col] = -dv
     s_risk_univ = pd.Series(s_risk_dict)
 
@@ -130,7 +127,7 @@ def _universe_components_risk(universe_closes: pd.DataFrame) -> pd.DataFrame:
 
 
 def _universe_raw_scores_risk(universe_closes: pd.DataFrame) -> pd.Series:
-    """Risk Stability Raw del universo tras normalizar componentes por separado."""
+    """Universe Risk Stability Raw after normalizing components separately."""
     cache_key = _universe_cache_key(universe_closes)
     if cache_key in _UNIVERSE_RAW_CACHE:
         return _UNIVERSE_RAW_CACHE[cache_key]
@@ -154,9 +151,9 @@ def compute_risk_stability_block(
     ticker: str,
     universe_closes: pd.DataFrame,
 ) -> dict[str, Any] | None:
-    """Calcula el bloque Risk/Stability (0-10)."""
+    """Compute the Risk/Stability block (0-10)."""
     if ticker not in universe_closes.columns:
-        raise ValueError(f"Ticker '{ticker}' no en universe_closes.")
+        raise ValueError(f"Ticker '{ticker}' not in universe_closes.")
 
     max_dd, downside_vol, r2, s_dd, s_risk, s_clarity = _risk_stability_components(
         universe_closes[ticker]
@@ -165,7 +162,7 @@ def compute_risk_stability_block(
     components = _universe_components_risk(universe_closes)
     if components.empty:
         logger.warning(
-            "Bloque 'risk_stability' devuelve None para %s: componentes del universo vacios.",
+            "Block 'risk_stability' returns None for %s: empty universe components.",
             ticker,
         )
         return None
@@ -175,7 +172,7 @@ def compute_risk_stability_block(
     s_clarity_z = _robust_z(s_clarity, components["s_clarity"])
     if s_dd_z is None or s_risk_z is None or s_clarity_z is None:
         logger.warning(
-            "Bloque 'risk_stability' devuelve None para %s: normalizacion interna insuficiente.",
+            "Block 'risk_stability' returns None for %s: insufficient internal normalization.",
             ticker,
         )
         return None
@@ -184,7 +181,7 @@ def compute_risk_stability_block(
     universe_raw = _universe_raw_scores_risk(universe_closes)
     if universe_raw.empty:
         logger.warning(
-            "Bloque 'risk_stability' devuelve None para %s: distribucion compuesta vacia.",
+            "Block 'risk_stability' returns None for %s: empty composite distribution.",
             ticker,
         )
         return None
@@ -192,7 +189,7 @@ def compute_risk_stability_block(
     norm = robust_sigmoid_normalize(raw_score, universe_raw)
     if norm is None:
         logger.warning(
-            "Bloque 'risk_stability' devuelve None para %s: normalizacion robusta insuficiente.",
+            "Block 'risk_stability' returns None for %s: insufficient robust normalization.",
             ticker,
         )
         return None

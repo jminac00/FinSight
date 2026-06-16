@@ -1,9 +1,7 @@
-"""
-normalization.py
-Funciones compartidas de normalizacion para los bloques de analisis tecnico.
+"""Shared normalization helpers for the technical analysis blocks.
 
-Pipeline principal:
-    raw score -> z-score robusto (mediana/MAD) -> sigmoide -> score 0-10
+Main pipeline:
+    raw score -> robust z-score (median/MAD) -> sigmoid -> 0-10 score
 """
 
 from __future__ import annotations
@@ -11,8 +9,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-ROBUST_SIGMOID_K = 0.9
-MIN_OBSERVATIONS = 10
+from app.services.technical.engine.config import (
+    MIN_OBSERVATIONS,
+    ROBUST_SIGMOID_K,
+    SIGNAL_THRESHOLDS,
+)
 
 
 def compute_robust_zscore(
@@ -21,15 +22,15 @@ def compute_robust_zscore(
     min_observations: int = MIN_OBSERVATIONS,
     fallback_to_std: bool = True,
 ) -> float | None:
-    """
-    Calcula z-score robusto:
+    """Compute the robust z-score:
+
         robust_z = (x - median) / (1.4826 * MAD)
 
-    MAD = median(|x_i - median|). El factor 1.4826 lo hace comparable con la
-    desviacion tipica en distribuciones aproximadamente normales.
+    MAD = median(|x_i - median|). The 1.4826 factor makes it comparable with the standard deviation
+    on approximately normal distributions.
 
-    Si MAD es cero y fallback_to_std=True, usa z-score clasico si la desviacion
-    tipica es valida. Si tampoco hay dispersion valida, devuelve None.
+    If MAD is zero and ``fallback_to_std`` is True, use the classic z-score when the standard
+    deviation is valid. If there is no valid dispersion either, return None.
     """
     clean = universe_series.replace([np.inf, -np.inf], np.nan).dropna()
     if len(clean) < min_observations or not np.isfinite(value):
@@ -51,17 +52,17 @@ def compute_robust_zscore(
 
 
 def sigmoid_score_0_10(z: float, k: float = ROBUST_SIGMOID_K) -> float:
-    """
-    Convierte z-score robusto a score 0-10:
+    """Map a robust z-score to a 0-10 score:
+
         score = 10 / (1 + exp(-k*z))
 
-    El default k=0.9 (ROBUST_SIGMOID_K) separa razonablemente empresas por
-    encima/debajo de la mediana sin saturar demasiado rapido en 0 o 10.
+    The default k=0.9 separates companies above/below the median reasonably without saturating too
+    quickly at 0 or 10.
     """
     if not np.isfinite(z):
         return float("nan")
-    # Clip a ±5 para evitar saturacion en scores extremos (9.993+).
-    # Con k=0.9 el maximo alcanzable es 10/(1+exp(-4.5)) = 9.89.
+    # Clip to ±5 to avoid saturation on extreme scores (9.993+).
+    # With k=0.9 the maximum reachable value is 10/(1+exp(-4.5)) = 9.89.
     x = float(np.clip(k * z, -5.0, 5.0))
     return float(10.0 / (1.0 + np.exp(-x)))
 
@@ -72,10 +73,9 @@ def robust_sigmoid_normalize(
     k: float = ROBUST_SIGMOID_K,
     min_observations: int = MIN_OBSERVATIONS,
 ) -> dict[str, float | str] | None:
-    """
-    Normaliza value contra universe_series con z-score robusto y sigmoide.
+    """Normalize ``value`` against ``universe_series`` with a robust z-score and a sigmoid.
 
-    Devuelve:
+    Returns:
         {
             "z_score": z,
             "score_0_10": score,
@@ -99,44 +99,14 @@ def robust_sigmoid_normalize(
     }
 
 
-def diagnose_score_distribution(scores: pd.Series | list[float]) -> dict[str, float | int]:
-    """
-    Diagnostico rapido de dispersion de scores 0-10.
-    """
-    series = pd.Series(scores, dtype=float).replace([np.inf, -np.inf], np.nan).dropna()
-    if series.empty:
-        return {
-            "valid_scores": 0,
-            "mean": float("nan"),
-            "median": float("nan"),
-            "std": float("nan"),
-            "pct_between_4_and_6": 0.0,
-            "pct_between_4_and_6_5": 0.0,
-            "unique_scores_rounded_2": 0,
-            "count_above_9_5": 0,
-            "count_below_0_5": 0,
-        }
-
-    return {
-        "valid_scores": int(len(series)),
-        "mean": float(series.mean()),
-        "median": float(series.median()),
-        "std": float(series.std(ddof=0)),
-        "pct_between_4_and_6": float(series.between(4.0, 6.0, inclusive="both").mean() * 100.0),
-        "pct_between_4_and_6_5": float(series.between(4.0, 6.5, inclusive="both").mean() * 100.0),
-        "unique_scores_rounded_2": int(series.round(2).nunique()),
-        "count_above_9_5": int((series > 9.5).sum()),
-        "count_below_0_5": int((series < 0.5).sum()),
-    }
-
-
 def assign_signal(
     score: float,
-    thresholds: tuple[float, float] = (4.0, 6.5),
+    thresholds: tuple[float, float] = SIGNAL_THRESHOLDS,
     labels: tuple[str, str, str] = ("bajista", "neutral", "alcista"),
 ) -> str:
-    """
-    Devuelve la etiqueta cualitativa para un score 0-10.
+    """Return the qualitative label for a 0-10 score.
+
+    Labels are product-facing Spanish text returned through the API.
     """
     if score < thresholds[0]:
         return labels[0]
