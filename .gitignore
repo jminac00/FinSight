@@ -198,6 +198,10 @@ SRS_FinSight_IEEE830.pdf
 data/*.csv
 data/**/*.csv
 
+# Frontend source lib directory is real code (the generic `lib/` rule above is
+# meant for Python build artifacts).
+!frontend/src/lib/
+
 # Frontend dependencies
 frontend/node_modules/
 
@@ -216,3 +220,8 @@ notebooks/.cache/
 
 # Windows / cloud-sync artifacts
 desktop.ini
+
+# Local tooling state (Claude Code, impeccable design hook)
+.claude/
+.impeccable/
+frontend/.impeccable/
