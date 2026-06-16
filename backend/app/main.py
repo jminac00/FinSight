@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -8,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.core.neo4j import close_neo4j_driver
-from app.scheduler.jobs import start_scheduler, stop_scheduler, warm_universe_if_missing
+from app.scheduler.jobs import start_scheduler, stop_scheduler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,10 +22,6 @@ VERSION = "0.1.0"
 async def lifespan(app: FastAPI):
     logger.info("Starting FinSight backend v%s", VERSION)
     start_scheduler()
-    # On a fresh production deploy the universe snapshot may be absent; build it in the
-    # background so the fundamental endpoint becomes usable without blocking startup.
-    if get_settings().environment == "production":
-        asyncio.create_task(warm_universe_if_missing())
     yield
     stop_scheduler()
     close_neo4j_driver()
