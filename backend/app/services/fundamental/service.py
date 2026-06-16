@@ -1,28 +1,29 @@
-"""Fundamental analysis service.
+"""Fundamental analysis service (multi-universe).
 
-Wraps the vendored scoring engine (see engine/): it normalizes a single ticker against the
-precomputed S&P 500 universe, then turns the deterministic summary into a natural-language
-analysis in Spanish via the LLM. Results are cached per ticker (TTL = CACHE_TTL_FUNDAMENTAL).
+Wraps the vendored scoring engine (see engine/): it resolves the reference universe for a ticker
+(S&P 500 or MSCI World, per the requested mode), normalizes the ticker against it, and turns the
+deterministic summary into a natural-language analysis in Spanish via the LLM. Results are cached
+per (universe, ticker) with TTL = CACHE_TTL_FUNDAMENTAL.
 """
 
 import asyncio
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 import pandas as pd
 from cachetools import TTLCache
 
 from app.llm.base import LLMService
 from app.models.fundamental import FundamentalResult
-from app.services.fundamental.engine.scoring import analyze_ticker
-from app.services.fundamental.engine.universe import DEFAULT_UNIVERSE_PATH, load_universe
+from app.services.fundamental.engine.fundamental_score import analyze_ticker
+from app.services.fundamental.engine.ticker_routing import recommend_ticker
+from app.services.fundamental.engine.universe_manager import UniverseManager
 
 logger = logging.getLogger(__name__)
 
-_CACHE_MAX_TICKERS = 256
+_CACHE_MAX_ENTRIES = 512
 
 _SYSTEM_PROMPT = """You are a fundamental equity analyst writing for retail investors with no \
 finance background.
@@ -34,6 +35,7 @@ concise explanation.
 Rules:
 - Write in SPANISH, in plain language a non-expert can follow.
 - 3-5 sentences. Explain what the score means and the company's main strengths and weaknesses.
+- If the data quality is not "OK", briefly warn that the result should be read with caution.
 - Do NOT give investment advice nor buy/sell recommendations.
 - Do NOT invent data beyond what is provided.
 - Return plain text only (no markdown, no JSON)."""
@@ -43,63 +45,22 @@ class FundamentalError(Exception):
     """Base error for the fundamental analysis pipeline."""
 
 
-class UnknownTickerError(FundamentalError):
-    """Raised when the ticker does not match any listed symbol."""
-
-
 class UniverseNotReadyError(FundamentalError):
-    """Raised when the S&P 500 universe snapshot has not been built yet."""
+    """Raised when a required universe snapshot is not available."""
 
 
 class FundamentalAnalysisError(FundamentalError):
     """Raised when the engine cannot produce a usable score for the ticker."""
 
 
-class _TickerExistence(Protocol):
-    """Minimal interface for the ticker existence check (see sentiment.TickerValidator)."""
-
-    async def exists(self, ticker: str) -> bool: ...
-
-
-class UniverseProvider:
-    """Loads and caches the S&P 500 universe snapshot in memory.
-
-    The snapshot is an offline/scheduler-built CSV; it is never built on demand here (that would
-    block a request for minutes), so a missing file raises UniverseNotReadyError.
-    """
-
-    def __init__(self, path: Path | None = None) -> None:
-        """Args:
-        path: CSV path; defaults to the engine package location.
-        """
-        self._path = path or DEFAULT_UNIVERSE_PATH
-        self._cache: pd.DataFrame | None = None
-
-    def get(self) -> pd.DataFrame:
-        """Return the universe DataFrame, reading the CSV once and caching it.
-
-        Raises:
-            UniverseNotReadyError: If the snapshot CSV does not exist yet.
-        """
-        if self._cache is None:
-            if not self._path.exists():
-                raise UniverseNotReadyError(
-                    f"Fundamental universe snapshot not found at {self._path}"
-                )
-            self._cache = load_universe(self._path)
-        return self._cache
-
-    def invalidate(self) -> None:
-        """Drop the in-memory snapshot so the next get() re-reads the CSV."""
-        self._cache = None
-
-
-def _build_metrics(raw: dict[str, Any]) -> dict[str, Any]:
+def _build_metrics(raw: dict[str, Any], universe: str, mode: str, ticker: str) -> dict[str, Any]:
     """Extract a curated, frontend-friendly metrics dict from the engine result."""
     val = raw.get("valuation_detail") or {}
     qual = raw.get("quality_detail") or {}
     solv = raw.get("solvency_detail") or {}
     return {
+        "universe": universe,
+        "mode": mode,
         "scores": {
             "valoracion": raw.get("score_valoracion"),
             "calidad": raw.get("score_calidad"),
@@ -109,75 +70,82 @@ def _build_metrics(raw: dict[str, Any]) -> dict[str, Any]:
         "sub_signals": raw.get("sub_signals", {}),
         "weights_used": raw.get("weights_used", {}),
         "sector": raw.get("sector"),
+        "valuation_data_quality": raw.get("valuation_data_quality"),
+        "data_flags": raw.get("data_flags"),
+        "degradation": raw.get("degradation", {}),
         "ratios": {
             "ebitda_yield": val.get("ebitda_yield"),
             "earnings_yield": val.get("earnings_yield"),
             "fcf_yield": val.get("fcf_yield"),
             "roe": qual.get("roe"),
             "roa": qual.get("roa"),
+            "roce": qual.get("roce"),
             "operating_margin": qual.get("operating_margin"),
             "gp_a": qual.get("gp_a"),
             "dn_ebitda": solv.get("dn_ebitda"),
             "current_ratio": solv.get("current_ratio"),
             "debt_to_equity": solv.get("debt_to_equity"),
         },
+        "routing": recommend_ticker(ticker, original_result=raw),
     }
 
 
 class FundamentalService:
-    """Orchestrates the fundamental analysis for a single ticker.
+    """Orchestrates the fundamental analysis for a single ticker across universes.
 
-    Flow: ticker existence check → universe snapshot → engine scoring → LLM explanation (Spanish).
+    Flow: resolve universe (by mode) → engine scoring → LLM explanation in Spanish.
     """
 
     def __init__(
         self,
-        universe_provider: UniverseProvider,
         llm_service: LLMService,
-        ticker_validator: _TickerExistence,
         cache_ttl: int,
-        analyze_fn: Callable[[str, pd.DataFrame], dict[str, Any]] = analyze_ticker,
+        manager: UniverseManager | None = None,
+        analyze_fn: Callable[[str, pd.DataFrame, str], dict[str, Any]] = analyze_ticker,
     ) -> None:
         """Args:
-        universe_provider: Provides the cached S&P 500 universe snapshot.
         llm_service: LLM provider used to render the analysis in Spanish.
-        ticker_validator: Existence check for the requested ticker (fail-open).
-        cache_ttl: Seconds a result stays cached per ticker.
+        cache_ttl: Seconds a result stays cached per (universe, ticker).
+        manager: Universe manager (its own instance so a refresh can drop it via cache_clear).
         analyze_fn: Engine entry point; injectable for testing.
         """
-        self._universe = universe_provider
         self._llm = llm_service
-        self._ticker_validator = ticker_validator
+        self._manager = manager or UniverseManager()
         self._analyze_fn = analyze_fn
-        self._cache: TTLCache[str, FundamentalResult] = TTLCache(
-            maxsize=_CACHE_MAX_TICKERS, ttl=cache_ttl
+        self._cache: TTLCache[tuple[str, str], FundamentalResult] = TTLCache(
+            maxsize=_CACHE_MAX_ENTRIES, ttl=cache_ttl
         )
 
-    async def analyze(self, ticker: str, force_refresh: bool = False) -> FundamentalResult:
+    async def analyze(
+        self, ticker: str, mode: str = "auto", force_refresh: bool = False
+    ) -> FundamentalResult:
         """Run the fundamental analysis for a stock ticker.
 
         Args:
-            ticker: Uppercase stock symbol (e.g. 'AAPL').
+            ticker: Uppercase stock symbol (e.g. 'AAPL', 'ASML.AS').
+            mode: 'auto' (S&P 500 if in the index, else MSCI World), 'domestic' (S&P 500) or
+                'global' (MSCI World).
             force_refresh: Skip the cached result and recompute.
 
         Returns:
             FundamentalResult with score, metrics, Spanish LLM analysis and cache timestamp.
 
         Raises:
-            UnknownTickerError: If the ticker does not match any listed symbol.
-            UniverseNotReadyError: If the universe snapshot has not been built yet.
+            UniverseNotReadyError: If the resolved universe snapshot is unavailable.
             FundamentalAnalysisError: If the engine cannot produce a usable score.
         """
-        if not force_refresh and ticker in self._cache:
-            logger.info("Fundamental cache hit for %s", ticker)
-            return self._cache[ticker]
+        universe = self._manager.resolve_universe(ticker, mode)
+        cache_key = (universe, ticker)
+        if not force_refresh and cache_key in self._cache:
+            logger.info("Fundamental cache hit for %s (%s)", ticker, universe)
+            return self._cache[cache_key]
 
-        if not await self._ticker_validator.exists(ticker):
-            raise UnknownTickerError(f"Ticker {ticker} does not match any listed symbol")
+        try:
+            universe_df = self._manager.get_universe_df(universe)
+        except FileNotFoundError as exc:
+            raise UniverseNotReadyError(str(exc)) from exc
 
-        universe_df = self._universe.get()
-
-        raw = await asyncio.to_thread(self._analyze_fn, ticker, universe_df)
+        raw = await asyncio.to_thread(self._analyze_fn, ticker, universe_df, universe)
 
         score_final = raw.get("score_final")
         if score_final is None:
@@ -190,9 +158,9 @@ class FundamentalService:
 
         result = FundamentalResult(
             score=float(score_final),
-            metrics=_build_metrics(raw),
+            metrics=_build_metrics(raw, universe, mode, ticker),
             llm_analysis=llm_analysis.strip(),
             cached_at=datetime.now(tz=UTC),
         )
-        self._cache[ticker] = result
+        self._cache[cache_key] = result
         return result
