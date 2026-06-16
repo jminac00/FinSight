@@ -29,6 +29,7 @@ dependencies = [
     "neo4j-graphrag>=1.17.0",
     "requests>=2.34.2",
     "lxml>=6.1.1",
+    "scipy>=1.17.1",
 ]
 
 [dependency-groups]
