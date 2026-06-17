@@ -4,6 +4,7 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app.core.config import get_settings
 from app.services.fundamental.engine.msci_world import build_msci_world_universe
 from app.services.fundamental.engine.universe import build_universe
 from app.services.technical.engine.universe_manager import build_snapshot
@@ -80,7 +81,21 @@ async def daily_model_update() -> None:
 
 
 def start_scheduler() -> None:
-    """Register the scheduled jobs and start the APScheduler."""
+    """Register the scheduled jobs and start the APScheduler — production only.
+
+    The refresh jobs rebuild the universes in place from external data sources.
+    Outside production (local dev, tests) that would burn API quotas and overwrite
+    the committed reference snapshots, so the scheduler stays down there; seed data
+    manually with the ``scripts/build_*`` commands instead.
+    """
+    settings = get_settings()
+    if settings.environment != "production":
+        logger.info(
+            "APScheduler disabled (ENVIRONMENT=%s) — refresh jobs run in production only",
+            settings.environment,
+        )
+        return
+
     _scheduler.add_job(
         daily_model_update,
         trigger=CronTrigger(hour=22, minute=0, timezone="Europe/Madrid"),
@@ -107,6 +122,8 @@ def start_scheduler() -> None:
 
 
 def stop_scheduler() -> None:
-    """Gracefully shut down the APScheduler."""
+    """Gracefully shut down the APScheduler if it is running (no-op otherwise)."""
+    if not _scheduler.running:
+        return
     _scheduler.shutdown(wait=False)
     logger.info("APScheduler stopped")
