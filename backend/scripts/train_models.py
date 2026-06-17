@@ -1,11 +1,13 @@
 """Offline batch trainer for the deep learning module.
 
-Trains one GRU per ticker from the local research CSVs and writes the
-``{ticker}.pt`` + ``{ticker}.json`` artifacts the runtime consumes. Reads only an
-explicit ``--tickers`` list: choosing the production universe (curated set vs
-on-demand) is the job of the runtime service and the scheduler, not this script.
+Trains one GRU per ticker from live end-of-day prices and writes the
+``{ticker}.pt`` + ``{ticker}.json`` artifacts the runtime consumes. History is
+fetched through the shared ``app.core.market_data`` module (yfinance), the same
+price source the rest of the app uses. Reads only an explicit ``--tickers`` list:
+choosing the production universe (curated set vs on-demand) is the job of the
+runtime service and the scheduler, not this script.
 
-Usage:
+Usage (from backend/):
     uv run python -m scripts.train_models --tickers AAPL,NVDA
 """
 
@@ -17,8 +19,9 @@ from pathlib import Path
 
 import pandas as pd
 
+from app.core.market_data import get_price_history
 from app.services.deep_learning.artifacts import DEFAULT_MODELS_DIR
-from app.services.deep_learning.preprocessing import FEATURES, InsufficientHistoryError, clean_ohlc
+from app.services.deep_learning.preprocessing import InsufficientHistoryError, clean_ohlc
 from app.services.deep_learning.recipe import load_frozen_recipe
 from app.services.deep_learning.training.pipeline import train_ticker
 
@@ -29,24 +32,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger("train_models")
 
-DEFAULT_CSV_DIR = Path(__file__).resolve().parents[2] / "data" / "nasdaq_prices"
 
+def _fetch_ohlc(ticker: str) -> pd.DataFrame:
+    """Download a ticker's full adjusted history and clean it for training.
 
-def _read_ohlc_csv(path: Path) -> pd.DataFrame:
-    """Read one ticker CSV (columns ticker,date,open,high,low,close) into a clean,
-    date-indexed OHLC frame."""
-    df = pd.read_csv(path)
-    df.columns = df.columns.str.strip().str.lower()
-    df["date"] = pd.to_datetime(df["date"])
-    return clean_ohlc(df.set_index("date")[FEATURES])
+    ``get_price_history`` returns capitalized OHLCV columns; ``clean_ohlc`` expects
+    lowercase OHLC, so lower-case the columns at this boundary before cleaning.
+    """
+    history = get_price_history(ticker, period="max")
+    history.columns = history.columns.str.lower()
+    return clean_ohlc(history)
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train per-ticker GRU models from local CSVs.")
+    parser = argparse.ArgumentParser(description="Train per-ticker GRU models from live prices.")
     parser.add_argument("--tickers", required=True, help="Comma-separated tickers, e.g. AAPL,NVDA")
-    parser.add_argument(
-        "--csv-dir", type=Path, default=DEFAULT_CSV_DIR, help="Directory of OHLC CSVs"
-    )
     parser.add_argument(
         "--output-dir", type=Path, default=DEFAULT_MODELS_DIR, help="Artifacts output"
     )
@@ -63,13 +63,8 @@ def main() -> None:
 
     trained = skipped = failed = 0
     for ticker in tickers:
-        csv_path = args.csv_dir / f"{ticker}.csv"
-        if not csv_path.exists():
-            logger.warning("%s: no CSV at %s — skipping", ticker, csv_path)
-            skipped += 1
-            continue
         try:
-            ohlc = _read_ohlc_csv(csv_path)
+            ohlc = _fetch_ohlc(ticker)
             artifacts = train_ticker(
                 ohlc,
                 ticker,
@@ -89,6 +84,9 @@ def main() -> None:
             trained += 1
         except InsufficientHistoryError as exc:
             logger.warning("%s: %s — skipping", ticker, exc)
+            skipped += 1
+        except ValueError as exc:
+            logger.warning("%s: no usable price data (%s) — skipping", ticker, exc)
             skipped += 1
         except Exception:
             logger.exception("%s: training failed", ticker)
