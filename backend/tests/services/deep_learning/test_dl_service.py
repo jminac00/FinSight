@@ -2,21 +2,16 @@
 
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime
+from datetime import datetime
 from unittest.mock import patch
 
 import numpy as np
 import pytest
-import torch
 
-from app.services.deep_learning.artifacts import ModelArtifacts, ModelMetadata
-from app.services.deep_learning.model import GRURegressor
-from app.services.deep_learning.preprocessing import INPUT_SIZE
+from app.services.deep_learning.preprocessing import InsufficientHistoryError
 from app.services.deep_learning.recipe import load_frozen_recipe
 from app.services.deep_learning.service import DLService, ModelNotAvailableError
 from app.services.deep_learning.training.pipeline import train_ticker
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -93,12 +88,9 @@ async def test_predict_raises_when_no_artifacts(tmp_path):
 
 async def test_predict_raises_insufficient_history_when_few_candles(service):
     """10-row frame is below lookback=24 — must raise InsufficientHistoryError."""
-    from app.services.deep_learning.preprocessing import InsufficientHistoryError
 
     short_df = _make_ohlc_df(n=10)
-    with patch(
-        "app.services.deep_learning.service.get_price_history", return_value=short_df
-    ):
+    with patch("app.services.deep_learning.service.get_price_history", return_value=short_df):
         with pytest.raises(InsufficientHistoryError):
             await service.predict("AAPL")
 
@@ -217,9 +209,7 @@ async def test_second_predict_call_hits_cache(service):
     df = _make_ohlc_df(n=60)
     with patch("app.services.deep_learning.service.get_price_history", return_value=df):
         with patch.object(DLService, "_forward", return_value=0.0):
-            with patch.object(
-                service, "_get_model", wraps=service._get_model
-            ) as spy:
+            with patch.object(service, "_get_model", wraps=service._get_model) as spy:
                 await service.predict("AAPL")
                 await service.predict("AAPL")
                 # _get_model called twice but the inner disk load only happens once
