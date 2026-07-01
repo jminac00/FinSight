@@ -1,9 +1,13 @@
 import re
-from datetime import UTC, datetime
+from functools import lru_cache
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
-from app.models.deep_learning import DLResult, ModelMetrics
+from app.core.config import get_settings
+from app.models.deep_learning import DLResult
+from app.services.deep_learning.artifacts import DEFAULT_MODELS_DIR
+from app.services.deep_learning.preprocessing import InsufficientHistoryError
+from app.services.deep_learning.service import DLService, ModelNotAvailableError
 
 router = APIRouter()
 
@@ -17,16 +21,23 @@ def _validate_ticker(ticker: str) -> str:
     return t
 
 
+@lru_cache
+def get_dl_service() -> DLService:
+    """Return the singleton DLService wired from settings."""
+    settings = get_settings()
+    return DLService(models_dir=DEFAULT_MODELS_DIR, max_models=settings.lru_cache_max_models)
+
+
 @router.get("/prediction/{ticker}", response_model=DLResult)
-async def get_prediction(ticker: str) -> DLResult:
-    """Return mock GRU prediction for the given ticker."""
+async def get_prediction(
+    ticker: str,
+    service: DLService = Depends(get_dl_service),
+) -> DLResult:
+    """Return a GRU-based 10-day return prediction for the given ticker."""
     ticker = _validate_ticker(ticker)
-    return DLResult(
-        trend="alcista",
-        predicted_return_pct=7.24,
-        predicted_price=195.50,
-        current_price=182.30,
-        horizon_days=10,
-        trained_at=datetime(2026, 6, 3, 22, 0, 0, tzinfo=UTC),
-        metrics=ModelMetrics(rmse=5.61, mae=4.39, directional_accuracy=0.60),
-    )
+    try:
+        return await service.predict(ticker)
+    except ModelNotAvailableError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (InsufficientHistoryError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
