@@ -80,3 +80,5 @@ Production uses a **plain GRU, no VMD**.
   confidence.
 - The VMD tooling remains in the research notebooks (`--model vmd-gru`) for
   reproducibility and the written record, but is not promoted to production.
+- The price data source and Nasdaq coverage scope are documented separately in
+  [ADR-0008](0008-dl-data-source-and-nasdaq-scope.md).
