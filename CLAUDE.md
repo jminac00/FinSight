@@ -278,7 +278,7 @@ cuatro módulos de análisis y presentando el resultado en español.
 ├── docs/                      # Documentación del proyecto
 │   └── adr/                   # Architecture Decision Records (decisiones de diseño)
 │
-├── data/                      # CSVs históricos OHLC para Deep Learning (en .gitignore)
+├── data/                      # CSVs OHLC de la fase de investigación (gitignored; fuente activa: yfinance)
 ├── notebooks/                 # Jupyter notebooks de entrenamiento
 ├── .gitignore
 ├── .gitattributes
@@ -301,11 +301,12 @@ cuatro módulos de análisis y presentando el resultado en español.
 - Caché: TTL configurable (por defecto 30 min) — protege las cuotas de ambos proveedores
 
 **Módulo 2 — Deep Learning (GRU)**
-- Flujo: datos EOD Finnhub → ventana lookback → GRU → retorno a 10 días → tendencia (banda neutral). Decisión de arquitectura en [ADR-0006](docs/adr/0006-gru-architecture-no-vmd.md)
+- Flujo: datos EOD yfinance (`app.core.market_data`) → ventana lookback → GRU → retorno a 10 días → tendencia (banda neutral). Decisión de arquitectura en [ADR-0006](docs/adr/0006-gru-architecture-no-vmd.md); fuente de datos en [ADR-0008](docs/adr/0008-dl-data-source-and-nasdaq-scope.md)
 - Salida: `{trend (alcista|bajista|neutral), predicted_return_pct, predicted_price (derivado), current_price, horizon_days, metrics{rmse,mae,directional_accuracy}, trained_at}`
 - Receta congelada (`notebooks/results/optuna/gru_frozen_config.json`); reentrenamiento de pesos por ticker
 - Lazy loading de modelos .pt con caché LRU (máx. configurable, por defecto 10 modelos)
 - Actualización diaria automática vía APScheduler (~22:00 CET) con datos reales únicamente
+- Cobertura: acciones del Nasdaq (universo validado por el HPO); otros mercados no están soportados (ver ADR-0008)
 
 **Módulo 3 — Análisis Fundamental**
 - Flujo: Yahoo Finance / Finnhub → OpenAI LLM → explicación en lenguaje natural
@@ -388,7 +389,7 @@ LRU_CACHE_MAX_MODELS=10
 | Finnhub (noticias, primario): 60 req/min, solo Norteamérica | Sin noticias frescas para tickers no norteamericanos | Cadena de fallback a NewsAPI (ADR-0005) |
 | NewsAPI (noticias, fallback): 100 req/día y 24 h de delay | Agotamiento fácil; noticias no inmediatas | Solo recibe tickers que Finnhub no cubre + caché TTL 30 min |
 | Datos solo EOD (no tiempo real intradía) | No se puede hacer análisis intradiario | Todo el análisis de precio se basa en datos de cierre |
-| Modelos GRU solo para acciones del Nasdaq | Soporte parcial para otras acciones | Informar al usuario con RF-27; documentado en la memoria |
+| Modelos GRU solo para acciones del Nasdaq | Soporte parcial para otras acciones | El HPO se realizó sobre tickers US Nasdaq (AAPL, NVDA, PEP); aplicar la receta congelada fuera de ese dominio no está validado. Informar al usuario con RF-27; ver [ADR-0008](docs/adr/0008-dl-data-source-and-nasdaq-scope.md) |
 | Procesamiento interno en inglés | Noticias, embeddings y prompts en inglés | Prompt engineering explícito para respuestas en español |
 | Coste OpenAI | API de pago (LLM + embeddings) | Uso acotado al proceso batch offline y análisis por demanda; sin streaming continuo |
 
