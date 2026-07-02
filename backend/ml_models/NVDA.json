@@ -1,0 +1,20 @@
+{
+  "ticker": "NVDA",
+  "trained_at": "2026-07-01T17:16:38.469256+00:00",
+  "horizon_days": 10,
+  "lookback": 24,
+  "input_size": 7,
+  "recipe": {
+    "hidden_size": 37,
+    "num_layers": 1,
+    "dense_units": 50,
+    "dropout": 0.24283099538508776
+  },
+  "metrics": {
+    "rmse": 9.65479850769043,
+    "mae": 7.502857208251953,
+    "directional_accuracy": 0.5984329089128305
+  },
+  "n_samples": 6869,
+  "data_through": "2026-06-16"
+}
