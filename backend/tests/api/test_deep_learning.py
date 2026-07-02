@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.api.v1.deep_learning import get_dl_service
+from app.core.config import get_settings
 from app.main import app
 from app.models.deep_learning import DLResult, ModelMetrics
 from app.services.deep_learning.preprocessing import InsufficientHistoryError
@@ -114,3 +115,47 @@ def test_get_prediction_yfinance_no_data_returns_422(client):
         assert response.status_code == 422
     finally:
         app.dependency_overrides.pop(get_dl_service, None)
+
+
+# ---------------------------------------------------------------------------
+# POST /dl/train/{ticker} — dev-only training endpoint
+# ---------------------------------------------------------------------------
+
+_FAKE_ARTIFACTS = MagicMock()
+_FAKE_ARTIFACTS.metadata.trained_at = "2026-07-01T22:00:00+00:00"
+_FAKE_ARTIFACTS.metadata.metrics = {"rmse": 5.61, "mae": 4.39, "directional_accuracy": 0.60}
+_FAKE_ARTIFACTS.metadata.data_through = "2026-07-01"
+
+
+def test_train_returns_403_in_production(client, mock_dl_service):
+    mock_settings = MagicMock()
+    mock_settings.environment = "production"
+    app.dependency_overrides[get_settings] = lambda: mock_settings
+    try:
+        response = client.post("/api/v1/train/AAPL")
+        assert response.status_code == 403
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+
+
+def test_train_returns_422_for_invalid_ticker(client, mock_dl_service):
+    response = client.post("/api/v1/train/toolong")
+    assert response.status_code == 422
+
+
+def test_train_delegates_to_service_train(client, mock_dl_service):
+    mock_dl_service.train = AsyncMock(return_value=_FAKE_ARTIFACTS)
+    response = client.post("/api/v1/train/aapl")
+    assert response.status_code == 200
+    mock_dl_service.train.assert_awaited_once_with("AAPL")
+
+
+def test_train_returns_200_with_dl_train_result_schema(client, mock_dl_service):
+    mock_dl_service.train = AsyncMock(return_value=_FAKE_ARTIFACTS)
+    response = client.post("/api/v1/train/AAPL")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ticker"] == "AAPL"
+    assert "trained_at" in data
+    assert "data_through" in data
+    assert set(data["metrics"]) == {"rmse", "mae", "directional_accuracy"}

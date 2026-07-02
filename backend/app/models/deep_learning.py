@@ -20,3 +20,12 @@ class DLResult(BaseModel):
     horizon_days: int
     trained_at: datetime
     metrics: ModelMetrics
+
+
+class DLTrainResult(BaseModel):
+    """Response from the on-demand training endpoint."""
+
+    ticker: str
+    trained_at: datetime
+    metrics: ModelMetrics
+    data_through: str

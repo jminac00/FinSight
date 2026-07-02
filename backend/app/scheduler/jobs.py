@@ -5,6 +5,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.core.config import get_settings
+from app.services.deep_learning.artifacts import DEFAULT_MODELS_DIR
 from app.services.fundamental.engine.msci_world import build_msci_world_universe
 from app.services.fundamental.engine.universe import build_universe
 from app.services.technical.engine.universe_manager import build_snapshot
@@ -71,13 +72,32 @@ async def daily_model_update() -> None:
     Runs daily at 22:00 CET, after the US market close.
     Uses exclusively real market data — never model-generated predictions.
     Logs outcome (tickers updated, metrics, errors) for monitoring.
+    Each ticker is warm-started from its current weights; on failure the
+    existing artifact is kept intact.
     """
-    # TODO: list all .pt files in ml_models/
-    # TODO: for each ticker, fetch latest EOD data from Finnhub
-    # TODO: refit the GRU on the updated history (frozen recipe)
-    # TODO: replace old .pt and update .json metadata
-    # TODO: log success/failure per ticker with updated metrics
-    logger.info("daily_model_update triggered — implementation pending")
+    from app.api.v1.deep_learning import get_dl_service
+
+    models_dir = DEFAULT_MODELS_DIR
+    tickers = sorted(
+        p.stem for p in models_dir.glob("*.pt") if (models_dir / f"{p.stem}.json").exists()
+    )
+    if not tickers:
+        logger.info("daily_model_update: no models found; nothing to update")
+        return
+
+    service = get_dl_service()
+    for ticker in tickers:
+        try:
+            artifacts = await service.train(ticker)
+            logger.info(
+                "daily_model_update %s: rmse=%.4f da=%.2f%% data_through=%s",
+                ticker,
+                artifacts.metadata.metrics["rmse"],
+                artifacts.metadata.metrics["directional_accuracy"] * 100,
+                artifacts.metadata.data_through,
+            )
+        except Exception:
+            logger.exception("daily_model_update: failed for %s; keeping existing artifact", ticker)
 
 
 def start_scheduler() -> None:

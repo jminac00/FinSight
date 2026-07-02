@@ -41,3 +41,27 @@ def test_train_ticker_raises_on_short_history(make_ohlc):
     recipe = load_frozen_recipe()
     with pytest.raises(InsufficientHistoryError):
         train_ticker(make_ohlc(n=30, seed=1), "AAPL", recipe, seed=42, max_epochs=5)
+
+
+def test_train_ticker_warm_start_accepts_initial_state_dict(make_ohlc):
+    """train_ticker continues from provided weights without raising."""
+    recipe = load_frozen_recipe()
+    ohlc = make_ohlc(n=400, seed=7)
+    cold = train_ticker(ohlc, "AAPL", recipe, seed=42, max_epochs=3)
+    warm = train_ticker(
+        ohlc,
+        "AAPL",
+        recipe,
+        seed=0,
+        max_epochs=3,
+        initial_state_dict=cold.state_dict,
+    )
+    assert all(np.isfinite(v) for v in warm.metadata.metrics.values())
+
+
+def test_train_ticker_cold_start_unchanged(make_ohlc):
+    """train_ticker without initial_state_dict still works (backward-compat)."""
+    recipe = load_frozen_recipe()
+    ohlc = make_ohlc(n=400, seed=7)
+    artifacts = train_ticker(ohlc, "AAPL", recipe, seed=42, max_epochs=3)
+    assert all(np.isfinite(v) for v in artifacts.metadata.metrics.values())

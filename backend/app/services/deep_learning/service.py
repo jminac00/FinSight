@@ -24,8 +24,21 @@ from app.services.deep_learning.preprocessing import (
     clean_ohlc,
     engineered_features,
 )
+from app.services.deep_learning.recipe import load_frozen_recipe
+from app.services.deep_learning.training.pipeline import train_ticker
 
 logger = logging.getLogger(__name__)
+
+
+def _period_for_days(days: int) -> str:
+    """Convert a number of days into the smallest yfinance period string that covers it."""
+    if days <= 365:
+        return "1y"
+    if days <= 730:
+        return "2y"
+    if days <= 1095:
+        return "3y"
+    return "max"
 
 
 class ModelNotAvailableError(Exception):
@@ -147,3 +160,60 @@ class DLService:
                 directional_accuracy=metadata.metrics["directional_accuracy"],
             ),
         )
+
+    def evict(self, ticker: str) -> None:
+        """Remove a model from the LRU cache (no-op if not cached)."""
+        self._cache.pop(ticker, None)
+
+    async def train(self, ticker: str, max_epochs: int = 50) -> ModelArtifacts:
+        """Retrain the GRU for *ticker* and persist fresh artifacts.
+
+        Warm-starts from existing weights when a trained model is available;
+        trains from scratch otherwise. The LRU cache entry is evicted after
+        saving so the next prediction loads the updated model.
+
+        Args:
+            ticker: Uppercase stock symbol.
+            max_epochs: Training budget (fewer than cold-start default since
+                warm-start converges faster).
+
+        Returns:
+            The newly trained :class:`ModelArtifacts`.
+
+        Raises:
+            InsufficientHistoryError: yfinance returned too few clean candles.
+            ValueError: yfinance returned no data for the ticker.
+        """
+        from datetime import date
+
+        recipe = load_frozen_recipe()
+        initial_state_dict: dict | None = None
+        period = "3y"
+
+        if await self.is_model_available(ticker):
+            current = await asyncio.to_thread(ModelArtifacts.load, ticker, self._models_dir)
+            initial_state_dict = current.state_dict
+            days_gap = (date.today() - date.fromisoformat(current.metadata.data_through)).days
+            period = _period_for_days(max(days_gap + 365, 365))
+
+        raw_df = await asyncio.to_thread(get_price_history, ticker, period)
+        ohlc = clean_ohlc(raw_df.rename(columns=str.lower))
+
+        new_artifacts = await asyncio.to_thread(
+            train_ticker,
+            ohlc,
+            ticker,
+            recipe,
+            initial_state_dict=initial_state_dict,
+            max_epochs=max_epochs,
+        )
+        await asyncio.to_thread(new_artifacts.save, self._models_dir)
+        self.evict(ticker)
+        logger.info(
+            "Trained %s: rmse=%.4f da=%.2f%% data_through=%s",
+            ticker,
+            new_artifacts.metadata.metrics["rmse"],
+            new_artifacts.metadata.metrics["directional_accuracy"] * 100,
+            new_artifacts.metadata.data_through,
+        )
+        return new_artifacts

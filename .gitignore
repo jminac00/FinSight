@@ -190,13 +190,10 @@ backend/.venv/
 SRS_FinSight_IEEE830.docx
 SRS_FinSight_IEEE830.pdf
 
-# PyTorch model files
-*.pt
+# PyTorch checkpoint files (.pth); trained model artifacts (.pt) are tracked
 *.pth
 
-# Trained deep learning artifacts (regenerated per ticker); keep the directory
-backend/ml_models/*
-!backend/ml_models/.gitkeep
+# Trained deep learning artifacts are tracked in backend/ml_models/
 
 # Historical market data CSVs
 data/*.csv
