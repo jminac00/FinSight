@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from app.scheduler.jobs import daily_model_update
 
 # get_dl_service is imported lazily inside daily_model_update, so we patch it

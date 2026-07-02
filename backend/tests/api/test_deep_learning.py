@@ -132,27 +132,27 @@ def test_train_returns_403_in_production(client, mock_dl_service):
     mock_settings.environment = "production"
     app.dependency_overrides[get_settings] = lambda: mock_settings
     try:
-        response = client.post("/api/v1/dl/train/AAPL")
+        response = client.post("/api/v1/train/AAPL")
         assert response.status_code == 403
     finally:
         app.dependency_overrides.pop(get_settings, None)
 
 
 def test_train_returns_422_for_invalid_ticker(client, mock_dl_service):
-    response = client.post("/api/v1/dl/train/toolong")
+    response = client.post("/api/v1/train/toolong")
     assert response.status_code == 422
 
 
 def test_train_delegates_to_service_train(client, mock_dl_service):
     mock_dl_service.train = AsyncMock(return_value=_FAKE_ARTIFACTS)
-    response = client.post("/api/v1/dl/train/aapl")
+    response = client.post("/api/v1/train/aapl")
     assert response.status_code == 200
     mock_dl_service.train.assert_awaited_once_with("AAPL")
 
 
 def test_train_returns_200_with_dl_train_result_schema(client, mock_dl_service):
     mock_dl_service.train = AsyncMock(return_value=_FAKE_ARTIFACTS)
-    response = client.post("/api/v1/dl/train/AAPL")
+    response = client.post("/api/v1/train/AAPL")
     assert response.status_code == 200
     data = response.json()
     assert data["ticker"] == "AAPL"

@@ -224,6 +224,10 @@ def test_evict_is_noop_when_not_cached(service):
     service.evict("NOTCACHED")  # must not raise
 
 
+_P_PRICE = "app.services.deep_learning.service.get_price_history"
+_P_TRAIN = "app.services.deep_learning.service.train_ticker"
+
+
 # ---------------------------------------------------------------------------
 # DLService.train — cold start (no existing model)
 # ---------------------------------------------------------------------------
@@ -236,8 +240,8 @@ async def test_train_cold_start_uses_none_initial_state_dict(tmp_path):
     mock_artifacts = MagicMock()
     mock_artifacts.save = MagicMock()
 
-    with patch("app.services.deep_learning.service.get_price_history", return_value=df):
-        with patch("app.services.deep_learning.service.train_ticker", return_value=mock_artifacts) as mock_train:
+    with patch(_P_PRICE, return_value=df):
+        with patch(_P_TRAIN, return_value=mock_artifacts) as mock_train:
             await svc.train("AAPL")
 
     kwargs = mock_train.call_args.kwargs
@@ -251,8 +255,8 @@ async def test_train_cold_start_uses_3y_period(tmp_path):
     mock_artifacts = MagicMock()
     mock_artifacts.save = MagicMock()
 
-    with patch("app.services.deep_learning.service.get_price_history", return_value=df) as mock_fetch:
-        with patch("app.services.deep_learning.service.train_ticker", return_value=mock_artifacts):
+    with patch(_P_PRICE, return_value=df) as mock_fetch:
+        with patch(_P_TRAIN, return_value=mock_artifacts):
             await svc.train("AAPL")
 
     _, period = mock_fetch.call_args.args
@@ -270,8 +274,8 @@ async def test_train_warm_start_passes_initial_state_dict(service):
     mock_artifacts = MagicMock()
     mock_artifacts.save = MagicMock()
 
-    with patch("app.services.deep_learning.service.get_price_history", return_value=df):
-        with patch("app.services.deep_learning.service.train_ticker", return_value=mock_artifacts) as mock_train:
+    with patch(_P_PRICE, return_value=df):
+        with patch(_P_TRAIN, return_value=mock_artifacts) as mock_train:
             await service.train("AAPL")
 
     kwargs = mock_train.call_args.kwargs
@@ -284,8 +288,8 @@ async def test_train_warm_start_period_proportional_to_gap(service):
     mock_artifacts = MagicMock()
     mock_artifacts.save = MagicMock()
 
-    with patch("app.services.deep_learning.service.get_price_history", return_value=df) as mock_fetch:
-        with patch("app.services.deep_learning.service.train_ticker", return_value=mock_artifacts):
+    with patch(_P_PRICE, return_value=df) as mock_fetch:
+        with patch(_P_TRAIN, return_value=mock_artifacts):
             await service.train("AAPL")
 
     _, period = mock_fetch.call_args.args
