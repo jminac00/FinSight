@@ -1,16 +1,28 @@
 import asyncio
+import logging
 import re
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.models.deep_learning import DLResult, ModelMetrics
+from app.api.v1.deep_learning import get_dl_service
+from app.api.v1.fundamental import get_fundamental_service
+from app.api.v1.sentiment import get_sentiment_service
+from app.api.v1.technical import get_technical_service
+from app.llm.base import LLMService
+from app.llm.factory import get_llm_service
+from app.models.deep_learning import DLResult
 from app.models.fundamental import FundamentalResult
 from app.models.report import ReportResponse
-from app.models.sentiment import NewsItem, SentimentResult
-from app.models.technical import TechnicalBlockScores, TechnicalResult
+from app.models.sentiment import SentimentResult
+from app.models.technical import TechnicalResult
+from app.services.deep_learning.service import DLService
+from app.services.fundamental.service import FundamentalService
+from app.services.sentiment.service import SentimentService
+from app.services.technical.service import TechnicalService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _TICKER_RE = re.compile(r"^[A-Z0-9]{2,5}$")
 
@@ -22,6 +34,19 @@ _DISCLAIMER = (
     "decisiones de inversión."
 )
 
+_FALLBACK_CONCLUSION = (
+    "Se ha completado el análisis de los módulos disponibles. "
+    "Consulte cada sección para obtener los detalles del análisis."
+)
+
+_SYNTHESIS_SYSTEM = (
+    "You are a financial analyst writing a report summary for a retail investor. "
+    "Write a concise objective summary in Spanish (3-5 sentences) that integrates "
+    "the available analysis results. Highlight where modules agree or diverge. "
+    "Never mention artificial intelligence, models, or automated systems. "
+    "Do not give personalized investment advice."
+)
+
 
 def _validate_ticker(ticker: str) -> str:
     t = ticker.upper().strip()
@@ -30,85 +55,92 @@ def _validate_ticker(ticker: str) -> str:
     return t
 
 
-async def _mock_sentiment(ticker: str) -> SentimentResult:
-    await asyncio.sleep(0)
-    return SentimentResult(
-        label="positivo",
-        score=0.65,
-        confidence=0.82,
-        explanation=f"Las noticias recientes sobre {ticker} muestran una tendencia positiva.",
-        influential_news=[
-            NewsItem(
-                title=f"{ticker} beats Q3 earnings", url="https://example.com/1", source="Reuters"
-            ),
-        ],
-    )
-
-
-async def _mock_deep_learning(ticker: str) -> DLResult:
-    await asyncio.sleep(0)
-    return DLResult(
-        trend="alcista",
-        predicted_price=195.50,
-        current_price=182.30,
-        pct_change=7.24,
-        horizon_days=10,
-        trained_at=datetime(2026, 6, 3, 22, 0, 0, tzinfo=UTC),
-        metrics=ModelMetrics(rmse=3.12, mae=2.45, mape=1.35, r2=0.92),
-    )
-
-
-async def _mock_fundamental(ticker: str) -> FundamentalResult:
-    await asyncio.sleep(0)
-    return FundamentalResult(
-        score=7.8,
-        metrics={"per": 28.5, "roe": 0.312, "ev_ebitda": 21.3},
-        llm_analysis=(
-            f"{ticker} presenta una situación financiera sólida con "
-            "márgenes superiores a la media sectorial."
-        ),
-        cached_at=datetime.now(tz=UTC),
-    )
-
-
-async def _mock_technical(ticker: str) -> TechnicalResult:
-    await asyncio.sleep(0)
-    return TechnicalResult(
-        score=6.5,
-        signal="neutral",
-        block_scores=TechnicalBlockScores(
-            momentum=7.1, trend=6.0, risk_stability=5.5, confirmation=6.8
-        ),
-        indicators={"universe": "sp500", "score_reliable": True},
-        llm_analysis=f"El análisis técnico de {ticker} muestra señales moderadamente alcistas.",
-        calculated_at=datetime.now(tz=UTC),
-    )
+def _build_user_prompt(
+    ticker: str,
+    sentiment: SentimentResult | None,
+    dl: DLResult | None,
+    fundamental: FundamentalResult | None,
+    technical: TechnicalResult | None,
+) -> str:
+    lines = [f"Ticker: {ticker}", ""]
+    if sentiment:
+        label_line = (
+            f"  label={sentiment.label}, score={sentiment.score:.2f},"
+            f" confidence={sentiment.confidence:.2f}"
+        )
+        lines += [
+            "Sentiment analysis:",
+            label_line,
+            f"  {sentiment.explanation}",
+            "",
+        ]
+    else:
+        lines += ["Sentiment analysis: not available", ""]
+    if dl:
+        lines += [
+            "Deep learning prediction (10-day):",
+            f"  trend={dl.trend}, predicted_return={dl.predicted_return_pct:.2f}%",
+            "",
+        ]
+    else:
+        lines += ["Deep learning prediction: not available", ""]
+    if fundamental:
+        lines += [
+            "Fundamental analysis:",
+            f"  score={fundamental.score:.1f}/10",
+            f"  {fundamental.llm_analysis}",
+            "",
+        ]
+    else:
+        lines += ["Fundamental analysis: not available", ""]
+    if technical:
+        lines += [
+            "Technical analysis:",
+            f"  score={technical.score:.1f}/10, signal={technical.signal}",
+            f"  {technical.llm_analysis}",
+            "",
+        ]
+    else:
+        lines += ["Technical analysis: not available", ""]
+    return "\n".join(lines)
 
 
 @router.get("/report/{ticker}", response_model=ReportResponse)
 async def get_report(
     ticker: str,
     force_refresh: bool = Query(default=False),
+    sentiment_svc: SentimentService = Depends(get_sentiment_service),
+    dl_svc: DLService = Depends(get_dl_service),
+    fundamental_svc: FundamentalService = Depends(get_fundamental_service),
+    technical_svc: TechnicalService = Depends(get_technical_service),
+    llm: LLMService = Depends(get_llm_service),
 ) -> ReportResponse:
     """Orchestrate the 4 analysis modules in parallel and return the consolidated report."""
     ticker = _validate_ticker(ticker)
 
-    sentiment, dl, fundamental, technical = await asyncio.gather(
-        _mock_sentiment(ticker),
-        _mock_deep_learning(ticker),
-        _mock_fundamental(ticker),
-        _mock_technical(ticker),
+    results = await asyncio.gather(
+        sentiment_svc.analyze(ticker, force_refresh=force_refresh),
+        dl_svc.predict(ticker),
+        fundamental_svc.analyze(ticker, mode="auto", force_refresh=force_refresh),
+        technical_svc.analyze(ticker, mode="auto", force_refresh=force_refresh),
+        return_exceptions=True,
     )
 
-    # TODO: replace with real LLM call via get_llm_service().complete(...)
-    global_conclusion = (
-        f"El análisis consolidado de {ticker} refleja una perspectiva generalmente positiva. "
-        "El sentimiento de mercado es favorable, respaldado por resultados sólidos. "
-        "El modelo LSTM predice una tendencia alcista a 10 días. "
-        "Los fundamentales son robustos y el análisis técnico confirma el momentum positivo. "
-        "Sin embargo, recuerde que este análisis es informativo y "
-        "no constituye recomendación de inversión."
-    )
+    sentiment = results[0] if not isinstance(results[0], BaseException) else None
+    dl = results[1] if not isinstance(results[1], BaseException) else None
+    fundamental = results[2] if not isinstance(results[2], BaseException) else None
+    technical = results[3] if not isinstance(results[3], BaseException) else None
+
+    for i, exc in enumerate(results):
+        if isinstance(exc, BaseException):
+            logger.warning("report %s: module %d failed: %s", ticker, i, exc)
+
+    try:
+        user_prompt = _build_user_prompt(ticker, sentiment, dl, fundamental, technical)
+        global_conclusion = await llm.complete(_SYNTHESIS_SYSTEM, user_prompt)
+    except Exception:
+        logger.exception("report %s: LLM synthesis failed; using fallback", ticker)
+        global_conclusion = _FALLBACK_CONCLUSION
 
     return ReportResponse(
         ticker=ticker,
@@ -119,5 +151,5 @@ async def get_report(
         technical=technical,
         global_conclusion=global_conclusion,
         disclaimer=_DISCLAIMER,
-        partial_support=False,
+        partial_support=dl is None,
     )
