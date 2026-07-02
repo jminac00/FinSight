@@ -18,9 +18,7 @@ class Settings(BaseSettings):
     )
 
     # LLM
-    llm_provider: Literal["groq", "ollama", "openai"] = "openai"
-    groq_api_key: str = ""
-    groq_model: str = "llama-3.1-70b-versatile"
+    llm_provider: Literal["ollama", "openai"] = "openai"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
     openai_api_key: str = ""
@@ -66,9 +64,9 @@ class Settings(BaseSettings):
         if self.environment != "production":
             return
         missing = []
-        if not self.groq_api_key and self.llm_provider == "groq":
-            missing.append("GROQ_API_KEY")
-        if not self.openai_api_key and self.llm_provider == "openai":
+        if not self.openai_api_key:
+            # Required regardless of LLM_PROVIDER: the knowledge graph embeddings
+            # are always OpenAI's, even when Ollama is the chat completion provider.
             missing.append("OPENAI_API_KEY")
         if not self.neo4j_uri:
             missing.append("NEO4J_URI")

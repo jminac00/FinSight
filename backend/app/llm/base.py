@@ -5,7 +5,7 @@ class LLMService(ABC):
     """Abstract interface for all LLM providers.
 
     All modules must call the LLM exclusively through this interface so that
-    swapping providers (Groq ↔ Ollama) requires no changes in business logic.
+    swapping providers (Ollama ↔ OpenAI) requires no changes in business logic.
     """
 
     @abstractmethod
