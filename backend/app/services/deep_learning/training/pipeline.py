@@ -32,9 +32,12 @@ def train_ticker(
     max_epochs: int = 100,
     patience: int = 10,
     device: str = "cpu",
+    initial_state_dict: dict | None = None,
 ) -> ModelArtifacts:
     """Train a GRU for one ticker and return its artifacts (not yet persisted).
 
+    When *initial_state_dict* is provided the model is warm-started from those
+    weights instead of random initialisation (useful for daily incremental updates).
     Raises InsufficientHistoryError if the history cannot fill all three splits.
     """
     dataset = make_dataset(ohlc, recipe)
@@ -48,6 +51,8 @@ def train_ticker(
     # regardless of any prior global RNG use; fit re-seeds the training loop.
     torch.manual_seed(seed)
     model = build_model(recipe, INPUT_SIZE)
+    if initial_state_dict is not None:
+        model.load_state_dict(initial_state_dict, strict=True)
     fit(
         model,
         train.X,
