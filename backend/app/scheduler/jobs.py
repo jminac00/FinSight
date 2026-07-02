@@ -79,9 +79,7 @@ async def daily_model_update() -> None:
 
     models_dir = DEFAULT_MODELS_DIR
     tickers = sorted(
-        p.stem
-        for p in models_dir.glob("*.pt")
-        if (models_dir / f"{p.stem}.json").exists()
+        p.stem for p in models_dir.glob("*.pt") if (models_dir / f"{p.stem}.json").exists()
     )
     if not tickers:
         logger.info("daily_model_update: no models found; nothing to update")
@@ -99,9 +97,7 @@ async def daily_model_update() -> None:
                 artifacts.metadata.data_through,
             )
         except Exception:
-            logger.exception(
-                "daily_model_update: failed for %s; keeping existing artifact", ticker
-            )
+            logger.exception("daily_model_update: failed for %s; keeping existing artifact", ticker)
 
 
 def start_scheduler() -> None:
