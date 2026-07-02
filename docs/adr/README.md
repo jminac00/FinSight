@@ -19,6 +19,8 @@ of the project's evolution.
 | [0005](0005-news-provider-fallback-chain.md) | News provider fallback chain for the sentiment module | Internal architecture design | Accepted |
 | [0006](0006-gru-architecture-no-vmd.md) | GRU without VMD as the deep learning production model | Internal architecture design | Accepted |
 | [0007](0007-fundamental-engine-integration.md) | Fundamental engine integration via vendoring and a precomputed universe | Internal architecture design | Accepted |
+| [0008](0008-dl-data-source-and-nasdaq-scope.md) | yfinance as the DL price data source and Nasdaq-only coverage scope | Issue #54 | Accepted |
+| [0009](0009-drop-groq-llm-provider.md) | Drop Groq as LLM provider; Ollama and OpenAI only | Issue #58 | Accepted |
 
 ## Format
 

@@ -1,6 +1,6 @@
 # ADR-0001 — OpenAI as LLM and embeddings provider in production
 
-- **Status**: Accepted
+- **Status**: Accepted; partially superseded by [ADR-0009](0009-drop-groq-llm-provider.md) (Groq removed)
 - **Date**: June 2026
 - **Source**: SRS v1.1 (requirements document revision)
 

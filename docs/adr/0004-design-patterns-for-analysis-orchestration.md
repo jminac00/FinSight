@@ -27,7 +27,7 @@ That approach concentrates several forces in one place:
   of expected change.
 
 The project already applies the **Adapter** pattern successfully for LLM providers
-(`LLMService` with OpenAI / Groq / Ollama, see [ADR-0001](0001-openai-as-llm-and-embeddings-provider.md))
+(`LLMService` with OpenAI / Ollama, see [ADR-0001](0001-openai-as-llm-and-embeddings-provider.md))
 and the **Factory + Singleton** pattern in `factory.py`. This ADR records the
 patterns chosen for the analysis orchestration itself.
 
