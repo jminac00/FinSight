@@ -177,10 +177,9 @@ cuatro módulos de análisis y presentando el resultado en español.
 | Backend | FastAPI (Python 3.11+) | Desplegado en Render (free tier, sin GPU) |
 | BD grafos | Neo4j AuraDB free tier (512 MB) | Módulo de sentimiento (GraphRAG) |
 | GraphRAG lib | neo4j-graphrag (Python) | Retrieval vectorial sobre Neo4j |
-| LLM activo | OpenAI API — gpt-5.4-mini | Chat completion + extracción estructural |
-| LLM alternativo | Groq API — Llama 3.1 70B | Fallback gratuito (`LLM_PROVIDER=groq`) |
-| LLM desarrollo | Ollama local — Llama 3.1 8B | RTX 4060, offline (`LLM_PROVIDER=ollama`) |
-| Embeddings | OpenAI — text-embedding-3-large | 3 072 dims, vector index en Neo4j |
+| LLM activo | OpenAI API — gpt-5.4-mini | Chat completion + extracción estructural, de pago (`LLM_PROVIDER=openai`) |
+| LLM desarrollo | Ollama local — múltiples modelos | RTX 4060, offline (`LLM_PROVIDER=ollama`, modelo vía `OLLAMA_MODEL`) |
+| Embeddings | OpenAI — text-embedding-3-large | 3 072 dims, vector index en Neo4j; obligatorio siempre, sin importar `LLM_PROVIDER` |
 | ML | PyTorch — modelos GRU por ticker | Ficheros .pt + .json de metadatos |
 | Scheduler | APScheduler embebido en FastAPI | Reentrenamiento diario automático |
 | Config | pydantic-settings + variables de entorno | Nunca valores hardcodeados |
@@ -238,7 +237,6 @@ cuatro módulos de análisis y presentando el resultado en español.
 │   │   ├── llm/               # Patrón Adaptador LLM (CRÍTICO)
 │   │   │   ├── base.py        # Interfaz abstracta LLMService
 │   │   │   ├── openai_provider.py
-│   │   │   ├── groq_provider.py
 │   │   │   ├── ollama_provider.py
 │   │   │   └── factory.py     # get_llm_service() con lru_cache
 │   │   ├── models/            # Schemas Pydantic (request/response)
@@ -331,13 +329,17 @@ Cambiar de proveedor **no debe requerir modificar la lógica de ningún módulo*
 ```
 LLMService (base.py — clase abstracta)
     .complete(system_prompt: str, user_prompt: str) -> str   [async]
-        ├── OpenAIProvider    → OpenAI API (gpt-5.4-mini)   — ACTIVO
-        ├── GroqProvider      → Groq API (Llama 3.1 70B)    — ALTERNATIVO
-        └── OllamaProvider    → Ollama local                 — DESARROLLO
+        ├── OpenAIProvider    → OpenAI API (gpt-5.4-mini)   — ACTIVO, DE PAGO
+        └── OllamaProvider    → Ollama local (múltiples modelos) — DESARROLLO
 ```
 
-El proveedor activo se selecciona con `LLM_PROVIDER=openai|groq|ollama` (variable de entorno).
+El proveedor activo se selecciona con `LLM_PROVIDER=openai|ollama` (variable de entorno).
 `factory.py` expone `get_llm_service()` con `lru_cache` para singleton.
+
+El embedder (`text-embedding-3-large`) es siempre OpenAI y **no** sigue el switch de
+`LLM_PROVIDER`: el grafo de conocimiento en Neo4j se construyó con esos embeddings, por
+lo que `OPENAI_API_KEY` es obligatoria incluso con `LLM_PROVIDER=ollama` (ver
+[ADR-0009](docs/adr/0009-drop-groq-llm-provider.md)).
 
 ### 3.6 Variables de entorno requeridas
 
@@ -345,12 +347,10 @@ El fichero `.env.example` debe contener exactamente estas variables (sin valores
 
 ```bash
 # LLM
-LLM_PROVIDER=openai                    # openai | groq | ollama
-OPENAI_API_KEY=
+LLM_PROVIDER=openai                    # openai | ollama
+OPENAI_API_KEY=                        # obligatoria siempre: los embeddings del grafo la usan sin importar LLM_PROVIDER
 OPENAI_MODEL=gpt-5.4-mini
 OPENAI_EMBEDDING_MODEL=text-embedding-3-large
-GROQ_API_KEY=
-GROQ_MODEL=llama-3.1-70b-versatile
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=llama3.1:8b
 

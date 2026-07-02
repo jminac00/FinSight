@@ -89,14 +89,12 @@ Copia `backend/.env.example` a `backend/.env` y rellena los valores:
 
 | Variable | Descripción |
 |----------|-------------|
-| `LLM_PROVIDER` | `openai` (activo) · `groq` (alternativo) · `ollama` (desarrollo local) |
-| `OPENAI_API_KEY` | Clave de la API de OpenAI |
+| `LLM_PROVIDER` | `openai` (activo, de pago) · `ollama` (desarrollo local, múltiples modelos) |
+| `OPENAI_API_KEY` | Clave de la API de OpenAI. **Obligatoria siempre**, incluso con `LLM_PROVIDER=ollama`: los embeddings del grafo de conocimiento (`OPENAI_EMBEDDING_MODEL`) usan OpenAI sin importar el proveedor de chat elegido |
 | `OPENAI_MODEL` | Modelo de chat (por defecto `gpt-5.4-mini`) |
 | `OPENAI_EMBEDDING_MODEL` | Modelo de embeddings (por defecto `text-embedding-3-large`) |
-| `GROQ_API_KEY` | Clave de la API de Groq (proveedor alternativo gratuito) |
-| `GROQ_MODEL` | Modelo Groq (por defecto `llama-3.1-70b-versatile`) |
 | `OLLAMA_BASE_URL` | URL de Ollama local (por defecto `http://localhost:11434`) |
-| `OLLAMA_MODEL` | Modelo Ollama (por defecto `llama3.1:8b`) |
+| `OLLAMA_MODEL` | Modelo Ollama a usar, seleccionable entre los disponibles localmente (por defecto `llama3.1:8b`) |
 | `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` | Conexión a Neo4j AuraDB |
 | `NEWSAPI_KEY` | Clave de NewsAPI |
 | `FINNHUB_API_KEY` | Clave de Finnhub |
@@ -138,7 +136,7 @@ automáticos desde Git y HTTPS con certificado automático.
 │   ├── app/
 │   │   ├── api/v1/    # Endpoints REST
 │   │   ├── services/  # Lógica de negocio por módulo
-│   │   ├── llm/       # Adaptador LLM (OpenAI / Groq / Ollama)
+│   │   ├── llm/       # Adaptador LLM (OpenAI / Ollama)
 │   │   ├── models/    # Schemas Pydantic
 │   │   ├── core/      # Configuración (pydantic-settings)
 │   │   └── scheduler/ # APScheduler (reentrenamiento diario)
