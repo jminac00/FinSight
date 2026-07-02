@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -203,6 +203,113 @@ async def test_predict_trained_at_is_datetime(service):
 # ---------------------------------------------------------------------------
 # LRU cache — second call should not re-load from disk
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# DLService.evict
+# ---------------------------------------------------------------------------
+
+
+async def test_evict_removes_ticker_from_cache(service):
+    df = _make_ohlc_df(n=60)
+    with patch("app.services.deep_learning.service.get_price_history", return_value=df):
+        with patch.object(DLService, "_forward", return_value=0.0):
+            await service.predict("AAPL")
+    assert "AAPL" in service._cache
+    service.evict("AAPL")
+    assert "AAPL" not in service._cache
+
+
+def test_evict_is_noop_when_not_cached(service):
+    service.evict("NOTCACHED")  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# DLService.train — cold start (no existing model)
+# ---------------------------------------------------------------------------
+
+
+async def test_train_cold_start_uses_none_initial_state_dict(tmp_path):
+    """With no existing model, train_ticker is called with initial_state_dict=None."""
+    svc = DLService(models_dir=tmp_path, max_models=2)
+    df = _make_ohlc_df(n=400)
+    mock_artifacts = MagicMock()
+    mock_artifacts.save = MagicMock()
+
+    with patch("app.services.deep_learning.service.get_price_history", return_value=df):
+        with patch("app.services.deep_learning.service.train_ticker", return_value=mock_artifacts) as mock_train:
+            await svc.train("AAPL")
+
+    kwargs = mock_train.call_args.kwargs
+    assert kwargs.get("initial_state_dict") is None
+
+
+async def test_train_cold_start_uses_3y_period(tmp_path):
+    """With no existing model, '3y' data is fetched."""
+    svc = DLService(models_dir=tmp_path, max_models=2)
+    df = _make_ohlc_df(n=400)
+    mock_artifacts = MagicMock()
+    mock_artifacts.save = MagicMock()
+
+    with patch("app.services.deep_learning.service.get_price_history", return_value=df) as mock_fetch:
+        with patch("app.services.deep_learning.service.train_ticker", return_value=mock_artifacts):
+            await svc.train("AAPL")
+
+    _, period = mock_fetch.call_args.args
+    assert period == "3y"
+
+
+# ---------------------------------------------------------------------------
+# DLService.train — warm start (existing model)
+# ---------------------------------------------------------------------------
+
+
+async def test_train_warm_start_passes_initial_state_dict(service):
+    """With an existing model, train_ticker receives a non-None initial_state_dict."""
+    df = _make_ohlc_df(n=400)
+    mock_artifacts = MagicMock()
+    mock_artifacts.save = MagicMock()
+
+    with patch("app.services.deep_learning.service.get_price_history", return_value=df):
+        with patch("app.services.deep_learning.service.train_ticker", return_value=mock_artifacts) as mock_train:
+            await service.train("AAPL")
+
+    kwargs = mock_train.call_args.kwargs
+    assert kwargs.get("initial_state_dict") is not None
+
+
+async def test_train_warm_start_period_proportional_to_gap(service):
+    """Fake artifact has data_through ~2016 (>3 years ago) → period 'max'."""
+    df = _make_ohlc_df(n=400)
+    mock_artifacts = MagicMock()
+    mock_artifacts.save = MagicMock()
+
+    with patch("app.services.deep_learning.service.get_price_history", return_value=df) as mock_fetch:
+        with patch("app.services.deep_learning.service.train_ticker", return_value=mock_artifacts):
+            await service.train("AAPL")
+
+    _, period = mock_fetch.call_args.args
+    assert period == "max"
+
+
+async def test_train_evicts_cache_entry_after_retraining(service):
+    """After train(), the ticker is no longer in the LRU cache."""
+    df_infer = _make_ohlc_df(n=60)
+    df_train = _make_ohlc_df(n=400)
+    mock_artifacts = MagicMock()
+    mock_artifacts.save = MagicMock()
+
+    # Load AAPL into cache
+    with patch("app.services.deep_learning.service.get_price_history", return_value=df_infer):
+        with patch.object(DLService, "_forward", return_value=0.0):
+            await service.predict("AAPL")
+    assert "AAPL" in service._cache
+
+    with patch("app.services.deep_learning.service.get_price_history", return_value=df_train):
+        with patch("app.services.deep_learning.service.train_ticker", return_value=mock_artifacts):
+            await service.train("AAPL")
+
+    assert "AAPL" not in service._cache
 
 
 async def test_second_predict_call_hits_cache(service):
