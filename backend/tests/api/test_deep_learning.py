@@ -159,3 +159,42 @@ def test_train_returns_200_with_dl_train_result_schema(client, mock_dl_service):
     assert "trained_at" in data
     assert "data_through" in data
     assert set(data["metrics"]) == {"rmse", "mae", "directional_accuracy"}
+
+
+# ---------------------------------------------------------------------------
+# get_dl_service — auto_train wiring from environment
+# ---------------------------------------------------------------------------
+
+
+def test_get_dl_service_enables_auto_train_outside_production(monkeypatch):
+    """Locally (development) the service trains missing models on demand."""
+    from app.api.v1 import deep_learning as dl_mod
+
+    dl_mod.get_dl_service.cache_clear()
+    monkeypatch.setattr(
+        dl_mod,
+        "get_settings",
+        lambda: MagicMock(environment="development", lru_cache_max_models=10),
+    )
+    try:
+        service = dl_mod.get_dl_service()
+        assert service._auto_train is True
+    finally:
+        dl_mod.get_dl_service.cache_clear()
+
+
+def test_get_dl_service_disables_auto_train_in_production(monkeypatch):
+    """In production the service never trains on demand (no GPU, scarce CPU)."""
+    from app.api.v1 import deep_learning as dl_mod
+
+    dl_mod.get_dl_service.cache_clear()
+    monkeypatch.setattr(
+        dl_mod,
+        "get_settings",
+        lambda: MagicMock(environment="production", lru_cache_max_models=10),
+    )
+    try:
+        service = dl_mod.get_dl_service()
+        assert service._auto_train is False
+    finally:
+        dl_mod.get_dl_service.cache_clear()
