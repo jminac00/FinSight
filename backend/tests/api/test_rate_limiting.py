@@ -12,7 +12,6 @@ from app.api.v1.deep_learning import get_dl_service
 from app.api.v1.fundamental import get_fundamental_service
 from app.api.v1.sentiment import get_sentiment_service
 from app.api.v1.technical import get_technical_service
-from app.core.rate_limit import limiter
 from app.llm.factory import get_llm_service
 from app.main import app
 from app.models.deep_learning import DLResult, ModelMetrics
@@ -47,13 +46,6 @@ _TECHNICAL = TechnicalResult(
     llm_analysis="ok",
     calculated_at=datetime.now(tz=UTC),
 )
-
-
-@pytest.fixture(autouse=True)
-def reset_limiter():
-    """Clear in-memory rate-limit counters before each test."""
-    limiter._storage.reset()
-    yield
 
 
 @pytest.fixture(scope="module")

@@ -1,11 +1,12 @@
 import re
 from functools import lru_cache
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.core.config import get_settings
 from app.core.finnhub import get_finnhub_client
 from app.core.neo4j import get_neo4j_driver
+from app.core.rate_limit import limiter
 from app.llm.factory import get_llm_service
 from app.models.sentiment import SentimentResult
 from app.services.sentiment.graph_retriever import GraphRetriever
@@ -49,7 +50,9 @@ def get_sentiment_service() -> SentimentService:
 
 
 @router.get("/sentiment/{ticker}", response_model=SentimentResult)
+@limiter.limit(lambda: get_settings().rate_limit_analysis)
 async def get_sentiment(
+    request: Request,
     ticker: str,
     force_refresh: bool = Query(default=False),
     service: SentimentService = Depends(get_sentiment_service),

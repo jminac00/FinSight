@@ -29,6 +29,7 @@ dependencies = [
     "requests>=2.34.2",
     "lxml>=6.1.1",
     "scipy>=1.17.1",
+    "slowapi>=0.1.10",
 ]
 
 [dependency-groups]

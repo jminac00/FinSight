@@ -2,9 +2,10 @@ import re
 from functools import lru_cache
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.core.config import get_settings
+from app.core.rate_limit import limiter
 from app.llm.factory import get_llm_service
 from app.models.technical import TechnicalResult
 from app.services.technical.engine.universe_manager import TechnicalUniverseManager
@@ -41,7 +42,9 @@ def get_technical_service() -> TechnicalService:
 
 
 @router.get("/technical/{ticker}", response_model=TechnicalResult)
+@limiter.limit(lambda: get_settings().rate_limit_analysis)
 async def get_technical(
+    request: Request,
     ticker: str,
     mode: Literal["auto", "domestic", "global"] = Query(default="auto"),
     force_refresh: bool = Query(default=False),

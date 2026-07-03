@@ -3,12 +3,14 @@ import logging
 import re
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.api.v1.deep_learning import get_dl_service
 from app.api.v1.fundamental import get_fundamental_service
 from app.api.v1.sentiment import get_sentiment_service
 from app.api.v1.technical import get_technical_service
+from app.core.config import get_settings
+from app.core.rate_limit import limiter
 from app.llm.base import LLMService
 from app.llm.factory import get_llm_service
 from app.models.deep_learning import DLResult
@@ -106,7 +108,9 @@ def _build_user_prompt(
 
 
 @router.get("/report/{ticker}", response_model=ReportResponse)
+@limiter.limit(lambda: get_settings().rate_limit_report)
 async def get_report(
+    request: Request,
     ticker: str,
     force_refresh: bool = Query(default=False),
     sentiment_svc: SentimentService = Depends(get_sentiment_service),

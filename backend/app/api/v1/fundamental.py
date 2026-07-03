@@ -3,9 +3,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.core.config import get_settings
+from app.core.rate_limit import limiter
 from app.llm.factory import get_llm_service
 from app.models.fundamental import FundamentalResult
 from app.services.fundamental.engine.universe_manager import UniverseManager
@@ -44,7 +45,9 @@ def get_fundamental_service() -> FundamentalService:
 
 
 @router.get("/fundamental/{ticker}", response_model=FundamentalResult)
+@limiter.limit(lambda: get_settings().rate_limit_analysis)
 async def get_fundamental(
+    request: Request,
     ticker: str,
     mode: Literal["auto", "domestic", "global"] = Query(default="auto"),
     force_refresh: bool = Query(default=False),
