@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.api.v1.deep_learning import get_dl_service
 from app.api.v1.fundamental import get_fundamental_service
+from app.api.v1.search import get_symbol_search_service
 from app.api.v1.sentiment import get_sentiment_service
 from app.api.v1.technical import get_technical_service
 from app.core.config import get_settings
@@ -20,6 +21,7 @@ from app.models.sentiment import SentimentResult
 from app.models.technical import TechnicalResult
 from app.services.deep_learning.service import DLService
 from app.services.fundamental.service import FundamentalService
+from app.services.search.service import SymbolSearchService
 from app.services.sentiment.service import SentimentService
 from app.services.technical.service import TechnicalService
 
@@ -117,16 +119,19 @@ async def get_report(
     dl_svc: DLService = Depends(get_dl_service),
     fundamental_svc: FundamentalService = Depends(get_fundamental_service),
     technical_svc: TechnicalService = Depends(get_technical_service),
+    search_svc: SymbolSearchService = Depends(get_symbol_search_service),
     llm: LLMService = Depends(get_llm_service),
 ) -> ReportResponse:
     """Orchestrate the 4 analysis modules in parallel and return the consolidated report."""
     ticker = _validate_ticker(ticker)
 
+    task_names = ("sentiment", "deep_learning", "fundamental", "technical", "search")
     results = await asyncio.gather(
         sentiment_svc.analyze(ticker, force_refresh=force_refresh),
         dl_svc.predict(ticker),
         fundamental_svc.analyze(ticker, mode="auto", force_refresh=force_refresh),
         technical_svc.analyze(ticker, mode="auto", force_refresh=force_refresh),
+        search_svc.search(ticker),
         return_exceptions=True,
     )
 
@@ -134,10 +139,26 @@ async def get_report(
     dl = results[1] if not isinstance(results[1], BaseException) else None
     fundamental = results[2] if not isinstance(results[2], BaseException) else None
     technical = results[3] if not isinstance(results[3], BaseException) else None
+    matches = results[4] if not isinstance(results[4], BaseException) else []
 
-    for i, exc in enumerate(results):
-        if isinstance(exc, BaseException):
-            logger.warning("report %s: module %d failed: %s", ticker, i, exc)
+    company_name = next(
+        (m.description for m in matches if m.symbol == ticker and m.description), None
+    )
+
+    for name, result in zip(task_names, results, strict=True):
+        if isinstance(result, BaseException):
+            logger.warning("report %s: %s failed: %s", ticker, name, result)
+
+    missing_modules = [
+        name
+        for name, value in (
+            ("sentiment", sentiment),
+            ("deep_learning", dl),
+            ("fundamental", fundamental),
+            ("technical", technical),
+        )
+        if value is None
+    ]
 
     try:
         user_prompt = _build_user_prompt(ticker, sentiment, dl, fundamental, technical)
@@ -148,6 +169,7 @@ async def get_report(
 
     return ReportResponse(
         ticker=ticker,
+        company_name=company_name,
         generated_at=datetime.now(tz=UTC),
         sentiment=sentiment,
         deep_learning=dl,
@@ -155,5 +177,6 @@ async def get_report(
         technical=technical,
         global_conclusion=global_conclusion,
         disclaimer=_DISCLAIMER,
-        partial_support=dl is None,
+        partial_support=bool(missing_modules),
+        missing_modules=missing_modules,
     )
