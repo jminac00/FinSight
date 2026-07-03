@@ -26,6 +26,25 @@ import { ReportSection } from './ReportSection'
 import { Stat } from './Stat'
 import { TrendDisplay } from './TrendDisplay'
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+/** Collect primitive leaf values from a (possibly nested) object, keyed by leaf name. */
+function flattenLeaves(value: unknown): Record<string, unknown> {
+  const record = asRecord(value)
+  if (!record) return {}
+  const out: Record<string, unknown> = {}
+  for (const [key, child] of Object.entries(record)) {
+    const nested = asRecord(child)
+    if (nested) Object.assign(out, flattenLeaves(nested))
+    else out[key] = child
+  }
+  return out
+}
+
 export function SentimentSection({ data }: { data: SentimentResult }) {
   return (
     <ReportSection id="sentiment" title="Análisis de sentimiento" badge={<AiBadge />}>
@@ -140,7 +159,10 @@ export function FundamentalSection({ data }: { data: FundamentalResult }) {
           <ScoreDial value={data.score} label="Puntuación fundamental" />
           <p className="max-w-prose flex-1 text-ink-muted">{data.llm_analysis}</p>
         </div>
-        <MetricTable data={data.metrics} caption="Métricas fundamentales" />
+        <MetricTable
+          data={asRecord(data.metrics.ratios) ?? data.metrics}
+          caption="Ratios fundamentales"
+        />
       </div>
     </ReportSection>
   )
@@ -165,7 +187,10 @@ export function TechnicalSection({ data }: { data: TechnicalResult }) {
           <h3 className="mb-3 text-sm font-semibold text-ink">Bloques técnicos</h3>
           <BlockScores blocks={data.block_scores} />
         </div>
-        <MetricTable data={data.indicators} caption="Indicadores técnicos" />
+        <MetricTable
+          data={flattenLeaves(asRecord(data.indicators.blocks) ?? data.indicators)}
+          caption="Indicadores técnicos"
+        />
       </div>
     </ReportSection>
   )

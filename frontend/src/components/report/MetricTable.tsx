@@ -1,19 +1,25 @@
 import { formatNumber, humanizeKey } from '../../lib/format'
 import { MetricInfo } from './MetricInfo'
 
-function renderValue(value: number | string): string {
-  return typeof value === 'number' ? formatNumber(value) : value
+/**
+ * Format a metric value for display, or return null for values that are not
+ * meaningfully renderable in a flat table (nested objects, arrays, null). The
+ * backend detail bags mix flat values with nested structures, so anything that
+ * is not a primitive is skipped rather than dumped raw.
+ */
+function displayValue(value: unknown): string | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? formatNumber(value) : null
+  if (typeof value === 'string') return value.trim() === '' ? null : value
+  if (typeof value === 'boolean') return value ? 'Sí' : 'No'
+  return null
 }
 
 /** Renders a metrics/indicators dictionary as an accessible key–value grid. */
-export function MetricTable({
-  data,
-  caption,
-}: {
-  data: Record<string, number | string>
-  caption: string
-}) {
+export function MetricTable({ data, caption }: { data: Record<string, unknown>; caption: string }) {
   const entries = Object.entries(data)
+    .map(([key, value]) => [key, displayValue(value)] as const)
+    .filter((entry): entry is readonly [string, string] => entry[1] !== null)
+
   if (entries.length === 0) return null
 
   return (
@@ -26,7 +32,7 @@ export function MetricTable({
               {humanizeKey(key)}
               <MetricInfo metricKey={key} />
             </dt>
-            <dd className="mt-1 font-semibold tabular-nums text-ink">{renderValue(value)}</dd>
+            <dd className="mt-1 font-semibold tabular-nums text-ink">{value}</dd>
           </div>
         ))}
       </dl>
