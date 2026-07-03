@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
 import pytest
@@ -314,6 +314,50 @@ async def test_train_evicts_cache_entry_after_retraining(service):
             await service.train("AAPL")
 
     assert "AAPL" not in service._cache
+
+
+# ---------------------------------------------------------------------------
+# predict — on-demand training (auto_train, local only)
+# ---------------------------------------------------------------------------
+
+
+async def test_predict_auto_trains_when_model_missing(tmp_path, make_ohlc, recipe):
+    """auto_train=True: a missing model is trained on demand, then predicted."""
+    svc = DLService(models_dir=tmp_path, max_models=2, auto_train=True)
+
+    async def _fake_train(ticker: str, *args, **kwargs):
+        # Simulate training by persisting real minimal artifacts to disk so the
+        # subsequent is_model_available() / _get_model() calls succeed.
+        artifacts = train_ticker(make_ohlc(n=400, seed=7), ticker, recipe, seed=42, max_epochs=3)
+        artifacts.save(tmp_path)
+        return artifacts
+
+    df = _make_ohlc_df(n=60)
+    with patch.object(svc, "train", side_effect=_fake_train) as mock_train:
+        with patch(_P_PRICE, return_value=df):
+            with patch.object(DLService, "_forward", return_value=2.5):
+                result = await svc.predict("SBUX")
+
+    mock_train.assert_awaited_once_with("SBUX")
+    assert result.trend == "alcista"
+
+
+async def test_predict_does_not_train_when_auto_train_disabled(tmp_path):
+    """auto_train=False (production): a missing model raises without training."""
+    svc = DLService(models_dir=tmp_path, max_models=2, auto_train=False)
+    with patch.object(svc, "train", new=AsyncMock()) as mock_train:
+        with pytest.raises(ModelNotAvailableError):
+            await svc.predict("SBUX")
+    mock_train.assert_not_awaited()
+
+
+async def test_predict_auto_train_disabled_by_default(tmp_path):
+    """Without the flag, on-demand training stays off (safe default for production)."""
+    svc = DLService(models_dir=tmp_path, max_models=2)
+    with patch.object(svc, "train", new=AsyncMock()) as mock_train:
+        with pytest.raises(ModelNotAvailableError):
+            await svc.predict("SBUX")
+    mock_train.assert_not_awaited()
 
 
 async def test_second_predict_call_hits_cache(service):

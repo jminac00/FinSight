@@ -56,9 +56,13 @@ class DLService:
         self,
         models_dir: Path = DEFAULT_MODELS_DIR,
         max_models: int = 10,
+        auto_train: bool = False,
     ) -> None:
         self._models_dir = models_dir
         self._cache: LRUCache[str, tuple[nn.Module, ModelMetadata]] = LRUCache(maxsize=max_models)
+        # When enabled (local only), predict() trains a missing model on demand
+        # instead of failing. Kept off in production, where CPU is scarce.
+        self._auto_train = auto_train
 
     async def is_model_available(self, ticker: str) -> bool:
         """Return True if both .pt and .json artifact files exist on disk."""
@@ -114,12 +118,15 @@ class DLService:
             horizon days, training date and model quality metrics.
 
         Raises:
-            ModelNotAvailableError: No trained artifact exists for ticker.
+            ModelNotAvailableError: No trained artifact exists and auto_train is off.
             InsufficientHistoryError: yfinance returned fewer than lookback clean candles.
             ValueError: yfinance returned no data for ticker.
         """
         if not await self.is_model_available(ticker):
-            raise ModelNotAvailableError(f"No trained model for '{ticker}'")
+            if not self._auto_train:
+                raise ModelNotAvailableError(f"No trained model for '{ticker}'")
+            logger.info("No trained model for %s; training on demand (local)", ticker)
+            await self.train(ticker)
 
         model, metadata = await asyncio.to_thread(self._get_model, ticker)
 
