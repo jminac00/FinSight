@@ -123,9 +123,15 @@ export function TechnicalSection({ data }: { data: TechnicalResult }) {
   return (
     <ReportSection id="technical" title="Análisis técnico" badge={<AiBadge />}>
       <div className="flex flex-col gap-5">
-        <div className="max-w-xs">
-          <Stat label="Puntuación técnica" value={`${formatNumber(data.score, 1)} / 10`} />
-          <ScoreBar value={data.score} className="mt-2" />
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="mb-1 text-sm font-medium text-ink-subtle">Señal técnica</p>
+            <TrendDisplay value={data.signal} kind="trend" />
+          </div>
+          <div className="w-full max-w-[16rem]">
+            <Stat label="Puntuación técnica" value={`${formatNumber(data.score, 1)} / 10`} />
+            <ScoreBar value={data.score} className="mt-2" />
+          </div>
         </div>
         <p className="max-w-prose text-ink-muted">{data.llm_analysis}</p>
         <MetricTable data={data.indicators} caption="Indicadores técnicos" />
