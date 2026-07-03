@@ -60,10 +60,17 @@ def test_get_sentiment_lowercase_ticker_is_normalised(client, mock_service):
 
 
 def test_get_sentiment_invalid_ticker_returns_422(client, mock_service):
-    response = client.get("/api/v1/sentiment/TOOLONG99")
+    response = client.get("/api/v1/sentiment/TOOLONGTICKERXYZ")  # 16 chars > limit
 
     assert response.status_code == 422
     mock_service.analyze.assert_not_awaited()
+
+
+def test_get_sentiment_accepts_international_ticker(client, mock_service):
+    response = client.get("/api/v1/sentiment/REP.MC")
+
+    assert response.status_code == 200
+    mock_service.analyze.assert_awaited_once_with("REP.MC", force_refresh=False)
 
 
 def test_get_sentiment_quota_exhausted_returns_503(client, mock_service):

@@ -123,8 +123,16 @@ def test_get_report_returns_200_with_full_response(client, mock_services):
 
 
 def test_get_report_invalid_ticker_returns_422(client, mock_services):
-    response = client.get("/api/v1/report/TOOLONGX")
+    response = client.get("/api/v1/report/TOOLONGTICKERXYZ")  # 16 chars > limit
     assert response.status_code == 422
+
+
+def test_get_report_accepts_international_ticker(client, mock_services):
+    svc_s, svc_d, svc_f, svc_t, svc_search, mock_llm = mock_services
+    response = client.get("/api/v1/report/REP.MC")
+    assert response.status_code == 200
+    svc_s.analyze.assert_awaited_once_with("REP.MC", force_refresh=False)
+    svc_d.predict.assert_awaited_once_with("REP.MC")
 
 
 def test_get_report_ticker_normalized_to_uppercase(client, mock_services):
