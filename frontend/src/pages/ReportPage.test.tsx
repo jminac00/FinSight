@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import { axe } from 'vitest-axe'
 import { ConsentProvider } from '../consent/ConsentContext'
+import { fullReport } from '../mocks/fixtures'
 import { server } from '../mocks/server'
 import { ThemeProvider } from '../theme/ThemeContext'
 import ReportPage from './ReportPage'
@@ -46,9 +47,39 @@ describe('ReportPage', () => {
     renderReport('TSLA')
 
     expect(await screen.findByText(/soporte parcial/i)).toBeInTheDocument()
+    expect(screen.getByText(/predicción de tendencia \(deep learning\)/i)).toBeInTheDocument()
     expect(
       screen.queryByRole('heading', { name: /predicción de tendencia/i }),
     ).not.toBeInTheDocument()
+  })
+
+  it('shows the company name alongside the ticker in the heading', async () => {
+    renderReport('AAPL')
+
+    const heading = await screen.findByRole('heading', { name: /análisis de apple inc - aapl/i })
+    expect(heading).toBeInTheDocument()
+  })
+
+  it('lists every missing module in the partial-support notice', async () => {
+    server.use(
+      http.get('/api/v1/report/:ticker', () =>
+        HttpResponse.json({
+          ...fullReport('MULTI'),
+          sentiment: null,
+          technical: null,
+          partial_support: true,
+          missing_modules: ['sentiment', 'technical'],
+        }),
+      ),
+    )
+
+    renderReport('MULTI')
+
+    const notice = await screen.findByText(/soporte parcial/i)
+    expect(notice).toBeInTheDocument()
+    expect(
+      screen.getByText(/el análisis de sentimiento y el análisis técnico/i),
+    ).toBeInTheDocument()
   })
 
   it('rejects an invalid ticker without crashing', async () => {

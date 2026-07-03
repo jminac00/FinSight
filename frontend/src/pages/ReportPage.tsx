@@ -16,6 +16,19 @@ import { useReport } from '../hooks/useReport'
 import { formatDateTime } from '../lib/format'
 import { isValidTicker, normalizeTicker } from '../lib/ticker'
 import type { ApiError } from '../api/client'
+import type { ReportModule } from '../api/types'
+
+const MODULE_LABELS: Record<ReportModule, string> = {
+  sentiment: 'el análisis de sentimiento',
+  deep_learning: 'la predicción de tendencia (deep learning)',
+  fundamental: 'el análisis fundamental',
+  technical: 'el análisis técnico',
+}
+
+function joinSpanishList(items: string[]): string {
+  if (items.length <= 1) return items.join('')
+  return `${items.slice(0, -1).join(', ')} y ${items[items.length - 1]}`
+}
 
 function BackLink() {
   return (
@@ -113,7 +126,8 @@ export default function ReportPage() {
         <div>
           <BackLink />
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-ink">
-            Análisis de <span className="text-accent">{ticker}</span>
+            Análisis de {data?.company_name ? `${data.company_name} - ` : ''}
+            <span className="text-accent">{ticker}</span>
           </h1>
           {data ? (
             <p className="mt-1 text-sm text-ink-subtle">
@@ -144,10 +158,11 @@ export default function ReportPage() {
         <div className="space-y-6">
           <ReportOverview data={data} />
 
-          {data.partial_support || !data.deep_learning ? (
+          {data.missing_modules.length > 0 ? (
             <StatusMessage tone="warning" title="Soporte parcial" live="off">
-              No hay un modelo de predicción entrenado para {ticker}. Se muestran los análisis de
-              sentimiento, fundamental y técnico; la predicción de tendencia no está disponible.
+              No se {data.missing_modules.length > 1 ? 'han' : 'ha'} podido completar{' '}
+              {joinSpanishList(data.missing_modules.map((m) => MODULE_LABELS[m]))} para {ticker}.
+              Se muestran el resto de análisis disponibles.
             </StatusMessage>
           ) : null}
 

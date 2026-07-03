@@ -83,8 +83,11 @@ export type SymbolSearchResponse = {
   results: SymbolMatch[]
 }
 
+export type ReportModule = 'sentiment' | 'deep_learning' | 'fundamental' | 'technical'
+
 export type ReportResponse = {
   ticker: string
+  company_name: string | null
   generated_at: string
   sentiment: SentimentResult | null
   deep_learning: DLResult | null
@@ -92,6 +95,8 @@ export type ReportResponse = {
   technical: TechnicalResult | null
   global_conclusion: string
   disclaimer: string
-  /** True when no GRU model exists for the ticker (RF-27). */
+  /** True when at least one analysis module could not be completed. */
   partial_support: boolean
+  /** Modules that could not be completed (e.g. no GRU model for the ticker, RF-27). */
+  missing_modules: ReportModule[]
 }

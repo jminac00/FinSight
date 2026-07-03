@@ -10,6 +10,7 @@ from app.models.technical import TechnicalResult
 
 class ReportResponse(BaseModel):
     ticker: str
+    company_name: str | None
     generated_at: datetime
     sentiment: SentimentResult | None
     deep_learning: DLResult | None
@@ -18,3 +19,4 @@ class ReportResponse(BaseModel):
     global_conclusion: str
     disclaimer: str
     partial_support: bool
+    missing_modules: list[str]
