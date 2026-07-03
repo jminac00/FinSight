@@ -218,6 +218,9 @@ frontend/node_modules/
 # Frontend build output
 frontend/dist/
 
+# Frontend TypeScript incremental build cache
+frontend/tsconfig.tsbuildinfo
+
 # Jupyter checkpoints
 notebooks/.ipynb_checkpoints/
 .ipynb_checkpoints/
