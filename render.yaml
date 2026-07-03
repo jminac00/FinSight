@@ -72,7 +72,7 @@ services:
       # paths (same origin in the browser, no CORS needed).
       - type: rewrite
         source: /api/*
-        destination: https://finsight-backend.onrender.com/api/*
+        destination: https://finsight-backend-gowp.onrender.com/api/*
       # SPA fallback: every other path serves index.html (React Router).
       - type: rewrite
         source: /*
