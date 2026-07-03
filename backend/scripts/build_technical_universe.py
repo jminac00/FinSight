@@ -1,9 +1,9 @@
 """Offline batch script — builds the technical price-universe snapshots.
 
 The snapshots are the cross-sectional reference (daily closes, plus OHLCV for the S&P 500) the
-technical blocks normalize each ticker against. They are gitignored runtime artifacts written to
-engine/data/ and refreshed daily by the scheduler; run this manually to seed them (e.g. before a
-demo) so the endpoint does not return 503 while the first refresh is pending.
+technical blocks normalize each ticker against. They are committed as seed data under
+engine/data/ and refreshed daily by the scheduler; run this manually to regenerate them (e.g.
+before a demo, or before committing a fresher snapshot).
 
 Usage (from backend/):
     uv run python scripts/build_technical_universe.py               # both universes
