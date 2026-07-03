@@ -1,8 +1,10 @@
 import { render, screen } from '@testing-library/react'
+import { HttpResponse, http } from 'msw'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import { axe } from 'vitest-axe'
 import { ConsentProvider } from '../consent/ConsentContext'
+import { server } from '../mocks/server'
 import { ThemeProvider } from '../theme/ThemeContext'
 import ReportPage from './ReportPage'
 
@@ -52,6 +54,22 @@ describe('ReportPage', () => {
   it('rejects an invalid ticker without crashing', async () => {
     renderReport('A')
     expect(await screen.findByText(/símbolo no válido/i)).toBeInTheDocument()
+  })
+
+  it('shows a dedicated message when rate limited (429)', async () => {
+    server.use(
+      http.get('/api/v1/report/:ticker', () =>
+        HttpResponse.json(
+          { detail: 'Rate limit exceeded' },
+          { status: 429, headers: { 'Retry-After': '30' } },
+        ),
+      ),
+    )
+
+    renderReport('AAPL')
+
+    expect(await screen.findByText(/demasiadas solicitudes/i)).toBeInTheDocument()
+    expect(screen.getByText(/30 segundos/i)).toBeInTheDocument()
   })
 
   it('has no detectable accessibility violations once loaded', async () => {

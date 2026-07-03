@@ -51,9 +51,19 @@ export type FundamentalResult = {
   cached_at: string
 }
 
+/** 0–10 score of each technical block (null if the block could not be computed). */
+export type TechnicalBlockScores = {
+  momentum: number | null
+  trend: number | null
+  risk_stability: number | null
+  confirmation: number | null
+}
+
 export type TechnicalResult = {
   /** Composite score in [0, 10]. */
   score: number
+  signal: Trend
+  block_scores: TechnicalBlockScores
   indicators: Record<string, number | string>
   llm_analysis: string
   calculated_at: string

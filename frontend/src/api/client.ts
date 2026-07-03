@@ -16,12 +16,22 @@ function apiUrl(path: string): string {
 export class ApiError extends Error {
   /** HTTP status, or 0 for network/timeout failures. */
   readonly status: number
+  /** Seconds to wait before retrying, from the `Retry-After` header on 429. */
+  readonly retryAfter?: number
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, retryAfter?: number) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.retryAfter = retryAfter
   }
+}
+
+/** Parse a numeric `Retry-After` header (seconds); ignore HTTP-date form. */
+function parseRetryAfter(header: string | null): number | undefined {
+  if (!header) return undefined
+  const seconds = Number(header)
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined
 }
 
 /**
@@ -53,7 +63,13 @@ export async function fetchReport(
       .json()
       .then((body: { detail?: string }) => body.detail)
       .catch(() => undefined)
-    throw new ApiError(detail ?? `Error del servidor (${response.status}).`, response.status)
+    const retryAfter =
+      response.status === 429 ? parseRetryAfter(response.headers.get('Retry-After')) : undefined
+    throw new ApiError(
+      detail ?? `Error del servidor (${response.status}).`,
+      response.status,
+      retryAfter,
+    )
   }
 
   return (await response.json()) as ReportResponse

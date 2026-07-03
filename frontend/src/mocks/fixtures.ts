@@ -64,6 +64,13 @@ export function fullReport(ticker: string): ReportResponse {
     },
     technical: {
       score: 6.4,
+      signal: 'alcista',
+      block_scores: {
+        momentum: 7.1,
+        trend: 6.8,
+        risk_stability: 5.4,
+        confirmation: 6.2,
+      },
       indicators: {
         rsi_14: 58.3,
         macd: 1.24,
