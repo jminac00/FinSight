@@ -28,9 +28,18 @@ def _validate_ticker(ticker: str) -> str:
 
 @lru_cache
 def get_dl_service() -> DLService:
-    """Return the singleton DLService wired from settings."""
+    """Return the singleton DLService wired from settings.
+
+    On-demand training is enabled outside production only: locally the machine
+    can train a missing model, while Render's free tier serves pre-trained
+    artifacts exclusively.
+    """
     settings = get_settings()
-    return DLService(models_dir=DEFAULT_MODELS_DIR, max_models=settings.lru_cache_max_models)
+    return DLService(
+        models_dir=DEFAULT_MODELS_DIR,
+        max_models=settings.lru_cache_max_models,
+        auto_train=settings.environment != "production",
+    )
 
 
 @router.get("/prediction/{ticker}", response_model=DLResult)
