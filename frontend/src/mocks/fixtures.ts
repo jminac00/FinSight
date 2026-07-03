@@ -6,11 +6,12 @@ const DISCLAIMER =
   'financiero, recomendación de inversión ni oferta de compra o venta de valores.'
 
 /** Full report (4 modules + conclusion) for development and tests. */
-export function fullReport(ticker: string): ReportResponse {
+export function fullReport(ticker: string, companyName: string | null = null): ReportResponse {
   const currentPrice = 182.3
   const predictedReturnPct = 4.82
   return {
     ticker,
+    company_name: companyName,
     generated_at: new Date().toISOString(),
     sentiment: {
       label: 'positivo',
@@ -135,11 +136,12 @@ export function fullReport(ticker: string): ReportResponse {
       'que se trata de información orientativa y no de una recomendación de inversión.',
     disclaimer: DISCLAIMER,
     partial_support: false,
+    missing_modules: [],
   }
 }
 
 /** Partial-support report (no GRU model) — RF-27. */
-export function partialReport(ticker: string): ReportResponse {
-  const base = fullReport(ticker)
-  return { ...base, deep_learning: null, partial_support: true }
+export function partialReport(ticker: string, companyName: string | null = null): ReportResponse {
+  const base = fullReport(ticker, companyName)
+  return { ...base, deep_learning: null, partial_support: true, missing_modules: ['deep_learning'] }
 }

@@ -45,7 +45,10 @@ export const handlers = [
     // Brief delay so loading/skeleton states are observable in development.
     await delay(600)
 
-    const report = PARTIAL_TICKERS.has(ticker) ? partialReport(ticker) : fullReport(ticker)
+    const companyName = SEARCH_UNIVERSE.find((m) => m.symbol === ticker)?.description ?? null
+    const report = PARTIAL_TICKERS.has(ticker)
+      ? partialReport(ticker, companyName)
+      : fullReport(ticker, companyName)
     return HttpResponse.json(report)
   }),
 ]
