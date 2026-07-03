@@ -13,13 +13,16 @@ from app.services.deep_learning.service import DLService, ModelNotAvailableError
 
 router = APIRouter()
 
-_TICKER_RE = re.compile(r"^[A-Z0-9]{2,5}$")
+# International symbols carry exchange suffixes and class separators (e.g. REP.MC,
+# ASML.AS, 7203.T, BRK-B), so the US-only 2-5 alphanumeric rule (CLAUDE.md §3.8) is
+# relaxed here for the universal (MSCI World) coverage.
+_TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,14}$")
 
 
 def _validate_ticker(ticker: str) -> str:
     t = ticker.upper().strip()
     if not _TICKER_RE.match(t):
-        raise HTTPException(status_code=422, detail="ticker must be 2–5 alphanumeric characters")
+        raise HTTPException(status_code=422, detail="invalid ticker symbol")
     return t
 
 

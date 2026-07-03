@@ -61,7 +61,7 @@ def test_prediction_returns_return_based_contract(client, mock_dl_service):
 
 
 def test_prediction_rejects_invalid_ticker(client):
-    response = client.get("/api/v1/prediction/toolong")
+    response = client.get("/api/v1/prediction/toolongtickerxyz")  # 16 chars > limit
     assert response.status_code == 422
 
 
@@ -139,7 +139,7 @@ def test_train_returns_403_in_production(client, mock_dl_service):
 
 
 def test_train_returns_422_for_invalid_ticker(client, mock_dl_service):
-    response = client.post("/api/v1/train/toolong")
+    response = client.post("/api/v1/train/toolongtickerxyz")  # 16 chars > limit
     assert response.status_code == 422
 
 

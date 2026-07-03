@@ -37,7 +37,7 @@ export const handlers = [
 
     if (!TICKER_RE.test(ticker)) {
       return HttpResponse.json(
-        { detail: 'El símbolo debe tener entre 2 y 5 caracteres alfanuméricos.' },
+        { detail: 'Símbolo no válido.' },
         { status: 422 },
       )
     }

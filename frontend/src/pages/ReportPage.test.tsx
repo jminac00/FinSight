@@ -83,7 +83,7 @@ describe('ReportPage', () => {
   })
 
   it('rejects an invalid ticker without crashing', async () => {
-    renderReport('A')
+    renderReport('A_B')
     expect(await screen.findByText(/símbolo no válido/i)).toBeInTheDocument()
   })
 

@@ -34,7 +34,7 @@ describe('SearchBar', () => {
     const user = userEvent.setup()
     renderSearchBar()
 
-    await user.type(screen.getByLabelText(/empresa o símbolo/i), 'A')
+    await user.type(screen.getByLabelText(/empresa o símbolo/i), 'A_B')
     await user.click(screen.getByRole('button', { name: /analizar/i }))
 
     const alert = await screen.findByRole('alert')

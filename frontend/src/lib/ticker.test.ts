@@ -8,11 +8,14 @@ describe('normalizeTicker', () => {
 })
 
 describe('isValidTicker', () => {
-  it.each(['AA', 'AAPL', 'ABCDE', 'A1B2C', 'aapl'])('accepts %s', (value) => {
-    expect(isValidTicker(value)).toBe(true)
-  })
+  it.each(['AA', 'AAPL', 'A1B2C', 'aapl', 'REP.MC', 'BRK.B', 'BRK-B', 'ASML.AS'])(
+    'accepts %s',
+    (value) => {
+      expect(isValidTicker(value)).toBe(true)
+    },
+  )
 
-  it.each(['A', 'ABCDEF', 'A B', 'AA-PL', ''])('rejects %s', (value) => {
+  it.each(['A B', '.MC', '-A', 'TOOLONGTICKERXYZ', ''])('rejects %s', (value) => {
     expect(isValidTicker(value)).toBe(false)
   })
 })
