@@ -7,15 +7,20 @@ export function Stat({
   value,
   hint,
   valueClassName,
+  info,
 }: {
   label: string
   value: ReactNode
   hint?: string
   valueClassName?: string
+  info?: ReactNode
 }) {
   return (
     <div>
-      <p className="text-sm text-ink-muted">{label}</p>
+      <p className="text-sm text-ink-muted">
+        {label}
+        {info}
+      </p>
       <p className={cn('mt-1 text-lg font-semibold tabular-nums text-ink', valueClassName)}>
         {value}
       </p>
