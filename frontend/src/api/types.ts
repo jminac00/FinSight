@@ -69,6 +69,18 @@ export type TechnicalResult = {
   calculated_at: string
 }
 
+export type SymbolMatch = {
+  symbol: string
+  description: string
+  type: string
+  display_symbol: string
+}
+
+export type SymbolSearchResponse = {
+  query: string
+  results: SymbolMatch[]
+}
+
 export type ReportResponse = {
   ticker: string
   generated_at: string
