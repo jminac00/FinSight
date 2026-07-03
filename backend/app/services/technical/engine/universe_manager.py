@@ -5,8 +5,9 @@ Downloading that universe (~500-1500 tickers, 3 years) on every request is unvia
 tier, so it is frozen offline to disk and refreshed daily by the scheduler. At request time the
 service loads the snapshot and only the requested ticker may need an individual download.
 
-Snapshots live in ``engine/data/`` as CSV files (gitignored runtime artifacts, like the trained
-models). For ``sp500`` the OHLCV fields are frozen too (the confirmation block uses them); for
+Snapshots live in ``engine/data/`` as CSV files, committed as seed data (Render's free tier has
+no persistent disk) and refreshed in place by the scheduler. For ``sp500`` the OHLCV fields are
+frozen too (the confirmation block uses them); for
 ``msci_world`` only the USD-converted closes are frozen (the global path runs the confirmation
 block against the close-price proxy).
 """
