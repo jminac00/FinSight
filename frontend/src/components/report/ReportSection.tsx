@@ -14,9 +14,14 @@ export function ReportSection({
   children: ReactNode
 }) {
   return (
-    <Card className="p-5 sm:p-6" role="region" aria-labelledby={`${id}-heading`}>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 id={`${id}-heading`} className="text-lg font-semibold text-ink">
+    <Card
+      id={id}
+      className="scroll-mt-24 p-5 sm:p-6"
+      role="region"
+      aria-labelledby={`${id}-heading`}
+    >
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <h2 id={`${id}-heading`} className="text-lg font-semibold tracking-tight text-ink">
           {title}
         </h2>
         {badge}

@@ -1,16 +1,24 @@
 import type { ReportResponse } from './types'
 
 /**
- * Absolute API base. Resolving against the current origin keeps the path
- * same-origin in the browser (and through the Vite proxy) while letting the
- * `fetch` implementation under test parse the URL.
+ * Absolute API base.
+ *
+ * - In production the frontend and backend are separate Render services, so
+ *   `VITE_API_BASE_URL` points at the backend origin.
+ * - When it is unset (local dev and tests) we resolve against the current
+ *   origin, keeping the path same-origin through the Vite `/api` proxy while
+ *   letting the `fetch` implementation under test parse the URL.
  */
+function apiBase(): string {
+  const configured = import.meta.env.VITE_API_BASE_URL?.trim()
+  if (configured) return configured.replace(/\/+$/, '')
+  return typeof window !== 'undefined' && window.location?.origin
+    ? window.location.origin
+    : 'http://localhost'
+}
+
 function apiUrl(path: string): string {
-  const origin =
-    typeof window !== 'undefined' && window.location?.origin
-      ? window.location.origin
-      : 'http://localhost'
-  return `${origin}/api/v1${path}`
+  return `${apiBase()}/api/v1${path}`
 }
 
 export class ApiError extends Error {
