@@ -111,6 +111,12 @@ export const CloseIcon = (p: IconProps) => (
   </Base>
 )
 
+export const ChevronDownIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="m6 9 6 6 6-6" />
+  </Base>
+)
+
 export const ArrowLeftIcon = (p: IconProps) => (
   <Base {...p}>
     <path d="M19 12H5M12 19l-7-7 7-7" />
