@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     cache_ttl_sentiment: int = 1800
     cache_ttl_fundamental: int = 86400
     cache_ttl_technical: int = 86400
+    cache_ttl_search: int = 86400
 
     # Analysis parameters
     prediction_horizon_days: int = 10
@@ -54,6 +55,7 @@ class Settings(BaseSettings):
     # Rate limiting (requests per time window, per client IP)
     rate_limit_report: str = "10/minute"
     rate_limit_analysis: str = "10/minute"
+    rate_limit_search: str = "60/minute"
 
     # Fundamental analysis: directory holding the frozen reference universes and
     # runtime stats. Empty → engine package default location (app/.../engine/data).
