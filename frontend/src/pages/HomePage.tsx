@@ -33,7 +33,7 @@ export default function HomePage() {
     <div className="mx-auto max-w-5xl px-4 sm:px-6">
       <section className="flex flex-col items-start gap-6 py-16 sm:py-24">
         <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
-          Entiende cualquier acción del Nasdaq en un solo informe
+          Entiende cualquier acción en un solo informe
         </h1>
         <p className="max-w-prose text-lg text-ink-muted">
           FinSight combina cuatro análisis complementarios y los resume en español, de forma clara

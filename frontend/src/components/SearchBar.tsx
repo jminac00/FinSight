@@ -61,7 +61,7 @@ export function SearchBar() {
         </p>
       ) : (
         <p className="mt-2 text-sm text-ink-subtle">
-          Acciones del mercado americano (Nasdaq).
+          Introduce el símbolo de la acción que quieres analizar.
         </p>
       )}
     </form>
