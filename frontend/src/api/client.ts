@@ -1,4 +1,4 @@
-import type { ReportResponse } from './types'
+import type { ReportResponse, SymbolMatch } from './types'
 
 /**
  * Absolute API base.
@@ -81,4 +81,23 @@ export async function fetchReport(
   }
 
   return (await response.json()) as ReportResponse
+}
+
+/**
+ * Search listed symbols by company name or ticker for autocomplete.
+ *
+ * Fail-soft: any error yields an empty list so the suggestions degrade quietly
+ * instead of surfacing an error while the user is typing.
+ */
+export async function searchSymbols(query: string): Promise<SymbolMatch[]> {
+  try {
+    const response = await fetch(apiUrl(`/search?q=${encodeURIComponent(query)}`), {
+      headers: { Accept: 'application/json' },
+    })
+    if (!response.ok) return []
+    const body = (await response.json()) as { results?: SymbolMatch[] }
+    return body.results ?? []
+  } catch {
+    return []
+  }
 }

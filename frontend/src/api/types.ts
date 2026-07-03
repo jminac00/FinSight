@@ -46,7 +46,8 @@ export type DLResult = {
 export type FundamentalResult = {
   /** Composite score in [0, 10]. */
   score: number
-  metrics: Record<string, number | string>
+  /** Detail bag: mixes flat values with nested objects (e.g. `ratios`, `scores`). */
+  metrics: Record<string, unknown>
   llm_analysis: string
   cached_at: string
 }
@@ -64,9 +65,22 @@ export type TechnicalResult = {
   score: number
   signal: Trend
   block_scores: TechnicalBlockScores
-  indicators: Record<string, number | string>
+  /** Detail bag: per-block detail, weights and metadata (mixes flat and nested values). */
+  indicators: Record<string, unknown>
   llm_analysis: string
   calculated_at: string
+}
+
+export type SymbolMatch = {
+  symbol: string
+  description: string
+  type: string
+  display_symbol: string
+}
+
+export type SymbolSearchResponse = {
+  query: string
+  results: SymbolMatch[]
 }
 
 export type ReportResponse = {

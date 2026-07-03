@@ -49,12 +49,21 @@ export function fullReport(ticker: string): ReportResponse {
     },
     fundamental: {
       score: 7.8,
+      // Detail bag mirrors the real backend: flat metadata plus nested objects.
       metrics: {
-        per: 28.5,
-        roe: 0.31,
-        ev_ebitda: 21.3,
-        net_margin: 0.25,
-        free_cash_flow: '99,6 B$',
+        universe: 'sp500',
+        mode: 'auto',
+        sector: 'Technology',
+        ratios: {
+          per: 28.5,
+          roe: 0.31,
+          ev_ebitda: 21.3,
+          net_margin: 0.25,
+          fcf_yield: 0.032,
+        },
+        scores: { valoracion: 2.6, calidad: 9.9, crecimiento: 6.4, solvencia: 7.1 },
+        sub_signals: { valoracion: 'sobrevalorada', calidad: 'alta calidad' },
+        degradation: { valoracion: { indicators_total: 4, indicators_available: 4 } },
       },
       llm_analysis:
         `${ticker} presenta una situación financiera sólida, con márgenes superiores a la media ` +
@@ -71,12 +80,19 @@ export function fullReport(ticker: string): ReportResponse {
         risk_stability: 5.4,
         confirmation: 6.2,
       },
+      // Detail bag mirrors the real backend: metadata plus per-block nested indicators.
       indicators: {
-        rsi_14: 58.3,
-        macd: 1.24,
-        sma_50: 175.8,
-        sma_200: 168.4,
-        bollinger_upper: 189.2,
+        universe: 'sp500',
+        data_completeness: 1.0,
+        score_reliable: true,
+        weights: { momentum: 0.35, trend: 0.3, risk_stability: 0.2, confirmation: 0.15 },
+        blocks: {
+          momentum: { rsi_14: 58.3, macd: 1.24 },
+          trend: { sma_50: 175.8, sma_200: 168.4 },
+          risk_stability: { bollinger_upper: 189.2 },
+          confirmation: { obv_trend: 0.42 },
+        },
+        errors: {},
       },
       llm_analysis:
         `El análisis técnico de ${ticker} muestra señales moderadamente alcistas: el precio se ` +
