@@ -11,9 +11,11 @@ import {
   formatRatioAsPercent,
   formatSignedPercent,
 } from '../../lib/format'
+import { pickTechnicalIndicators } from '../../lib/technicalIndicators'
 import { LegalDisclaimer } from '../LegalDisclaimer'
 import { Badge } from '../ui/Badge'
 import { Card } from '../ui/Card'
+import { Disclosure } from '../ui/Disclosure'
 import { ExternalLink } from '../ui/ExternalLink'
 import { AiBadge } from './AiBadge'
 import { BlockScores } from './charts/BlockScores'
@@ -159,10 +161,12 @@ export function FundamentalSection({ data }: { data: FundamentalResult }) {
           <ScoreDial value={data.score} label="Puntuación fundamental" />
           <p className="max-w-prose flex-1 text-ink-muted">{data.llm_analysis}</p>
         </div>
-        <MetricTable
-          data={asRecord(data.metrics.ratios) ?? data.metrics}
-          caption="Ratios fundamentales"
-        />
+        <Disclosure summary="Ver ratios detallados">
+          <MetricTable
+            data={asRecord(data.metrics.ratios) ?? data.metrics}
+            caption="Ratios fundamentales"
+          />
+        </Disclosure>
       </div>
     </ReportSection>
   )
@@ -183,14 +187,20 @@ export function TechnicalSection({ data }: { data: TechnicalResult }) {
             <p className="mt-3 max-w-prose text-ink-muted">{data.llm_analysis}</p>
           </div>
         </div>
-        <div>
-          <h3 className="mb-3 text-sm font-semibold text-ink">Bloques técnicos</h3>
-          <BlockScores blocks={data.block_scores} />
-        </div>
-        <MetricTable
-          data={flattenLeaves(asRecord(data.indicators.blocks) ?? data.indicators)}
-          caption="Indicadores técnicos"
-        />
+        <Disclosure summary="Ver bloques e indicadores detallados">
+          <div className="flex flex-col gap-6">
+            <div>
+              <h3 className="mb-3 text-sm font-semibold text-ink">Bloques técnicos</h3>
+              <BlockScores blocks={data.block_scores} />
+            </div>
+            <MetricTable
+              data={pickTechnicalIndicators(
+                flattenLeaves(asRecord(data.indicators.blocks) ?? data.indicators),
+              )}
+              caption="Indicadores técnicos"
+            />
+          </div>
+        </Disclosure>
       </div>
     </ReportSection>
   )
