@@ -20,6 +20,7 @@ import { BlockScores } from './charts/BlockScores'
 import { ReturnProjection } from './charts/ReturnProjection'
 import { ScoreDial } from './charts/ScoreDial'
 import { SentimentScale } from './charts/SentimentScale'
+import { MetricInfo } from './MetricInfo'
 import { MetricTable } from './MetricTable'
 import { ReportSection } from './ReportSection'
 import { Stat } from './Stat'
@@ -32,8 +33,16 @@ export function SentimentSection({ data }: { data: SentimentResult }) {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <TrendDisplay value={data.label} kind="sentiment" />
           <div className="flex gap-8">
-            <Stat label="Puntuación (−1 a 1)" value={formatNumber(data.score, 2)} />
-            <Stat label="Confianza" value={formatRatioAsPercent(data.confidence)} />
+            <Stat
+              label="Puntuación (−1 a 1)"
+              value={formatNumber(data.score, 2)}
+              info={<MetricInfo metricKey="score" />}
+            />
+            <Stat
+              label="Confianza"
+              value={formatRatioAsPercent(data.confidence)}
+              info={<MetricInfo metricKey="confidence" />}
+            />
           </div>
         </div>
 
@@ -101,11 +110,20 @@ export function DeepLearningSection({ data }: { data: DLResult }) {
         <div>
           <h3 className="mb-2 text-sm font-semibold text-ink">Calidad del modelo</h3>
           <div className="grid grid-cols-3 gap-x-8 gap-y-4">
-            <Stat label="RMSE" value={formatNumber(data.metrics.rmse, 2)} />
-            <Stat label="MAE" value={formatNumber(data.metrics.mae, 2)} />
+            <Stat
+              label="RMSE"
+              value={formatNumber(data.metrics.rmse, 2)}
+              info={<MetricInfo metricKey="rmse" />}
+            />
+            <Stat
+              label="MAE"
+              value={formatNumber(data.metrics.mae, 2)}
+              info={<MetricInfo metricKey="mae" />}
+            />
             <Stat
               label="Acierto direccional"
               value={formatRatioAsPercent(data.metrics.directional_accuracy)}
+              info={<MetricInfo metricKey="directional_accuracy" />}
             />
           </div>
         </div>
@@ -135,7 +153,10 @@ export function TechnicalSection({ data }: { data: TechnicalResult }) {
         <div className="flex flex-wrap items-center gap-6">
           <ScoreDial value={data.score} label="Puntuación técnica" />
           <div className="flex-1">
-            <p className="mb-1 text-sm font-medium text-ink-subtle">Señal técnica</p>
+            <p className="mb-1 text-sm font-medium text-ink-subtle">
+              Señal técnica
+              <MetricInfo metricKey="trend" />
+            </p>
             <TrendDisplay value={data.signal} kind="trend" />
             <p className="mt-3 max-w-prose text-ink-muted">{data.llm_analysis}</p>
           </div>

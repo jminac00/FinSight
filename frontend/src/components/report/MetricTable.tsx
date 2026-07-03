@@ -1,4 +1,5 @@
 import { formatNumber, humanizeKey } from '../../lib/format'
+import { MetricInfo } from './MetricInfo'
 
 function renderValue(value: number | string): string {
   return typeof value === 'number' ? formatNumber(value) : value
@@ -23,6 +24,7 @@ export function MetricTable({
           <div key={key} className="bg-surface p-3">
             <dt className="text-xs font-medium uppercase tracking-wide text-ink-subtle">
               {humanizeKey(key)}
+              <MetricInfo metricKey={key} />
             </dt>
             <dd className="mt-1 font-semibold tabular-nums text-ink">{renderValue(value)}</dd>
           </div>
