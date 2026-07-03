@@ -2,9 +2,10 @@ import re
 from datetime import datetime
 from functools import lru_cache
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.config import Settings, get_settings
+from app.core.rate_limit import limiter
 from app.models.deep_learning import DLResult, DLTrainResult, ModelMetrics
 from app.services.deep_learning.artifacts import DEFAULT_MODELS_DIR
 from app.services.deep_learning.preprocessing import InsufficientHistoryError
@@ -30,7 +31,9 @@ def get_dl_service() -> DLService:
 
 
 @router.get("/prediction/{ticker}", response_model=DLResult)
+@limiter.limit(lambda: get_settings().rate_limit_analysis)
 async def get_prediction(
+    request: Request,
     ticker: str,
     service: DLService = Depends(get_dl_service),
 ) -> DLResult:

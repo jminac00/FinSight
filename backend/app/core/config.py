@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     graph_hop_depth: int = 2
     lru_cache_max_models: int = 10
 
+    # Rate limiting (requests per time window, per client IP)
+    rate_limit_report: str = "10/minute"
+    rate_limit_analysis: str = "10/minute"
+
     # Fundamental analysis: directory holding the frozen reference universes and
     # runtime stats. Empty → engine package default location (app/.../engine/data).
     fundamental_data_dir: str = ""

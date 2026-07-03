@@ -4,9 +4,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
 
 from app.core.config import get_settings
 from app.core.neo4j import close_neo4j_driver
+from app.core.rate_limit import limiter, rate_limit_exceeded_handler
 from app.scheduler.jobs import start_scheduler, stop_scheduler
 
 logging.basicConfig(
@@ -38,6 +40,9 @@ def create_app() -> FastAPI:
         docs_url="/api/docs",
         redoc_url="/api/redoc",
     )
+
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
     app.add_middleware(
         CORSMiddleware,
