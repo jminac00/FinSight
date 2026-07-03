@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { ReportOverview } from '../components/report/ReportOverview'
 import { ReportSkeleton } from '../components/report/ReportSkeleton'
 import {
   ConclusionSection,
@@ -107,7 +108,7 @@ export default function ReportPage() {
   }, [ticker])
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+    <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <BackLink />
@@ -140,7 +141,9 @@ export default function ReportPage() {
       ) : error ? (
         <ErrorState error={error} onRetry={refresh} />
       ) : data ? (
-        <div className="space-y-4">
+        <div className="space-y-6">
+          <ReportOverview data={data} />
+
           {data.partial_support || !data.deep_learning ? (
             <StatusMessage tone="warning" title="Soporte parcial" live="off">
               No hay un modelo de predicción entrenado para {ticker}. Se muestran los análisis de
@@ -148,11 +151,13 @@ export default function ReportPage() {
             </StatusMessage>
           ) : null}
 
-          {data.sentiment ? <SentimentSection data={data.sentiment} /> : null}
-          {data.deep_learning ? <DeepLearningSection data={data.deep_learning} /> : null}
-          {data.fundamental ? <FundamentalSection data={data.fundamental} /> : null}
-          {data.technical ? <TechnicalSection data={data.technical} /> : null}
-          <ConclusionSection conclusion={data.global_conclusion} />
+          <div className="space-y-4">
+            {data.sentiment ? <SentimentSection data={data.sentiment} /> : null}
+            {data.deep_learning ? <DeepLearningSection data={data.deep_learning} /> : null}
+            {data.fundamental ? <FundamentalSection data={data.fundamental} /> : null}
+            {data.technical ? <TechnicalSection data={data.technical} /> : null}
+            <ConclusionSection conclusion={data.global_conclusion} />
+          </div>
         </div>
       ) : null}
     </div>

@@ -16,9 +16,12 @@ import { Badge } from '../ui/Badge'
 import { Card } from '../ui/Card'
 import { ExternalLink } from '../ui/ExternalLink'
 import { AiBadge } from './AiBadge'
+import { BlockScores } from './charts/BlockScores'
+import { ReturnProjection } from './charts/ReturnProjection'
+import { ScoreDial } from './charts/ScoreDial'
+import { SentimentScale } from './charts/SentimentScale'
 import { MetricTable } from './MetricTable'
 import { ReportSection } from './ReportSection'
-import { ScoreBar } from './ScoreBar'
 import { Stat } from './Stat'
 import { TrendDisplay } from './TrendDisplay'
 
@@ -33,6 +36,8 @@ export function SentimentSection({ data }: { data: SentimentResult }) {
             <Stat label="Confianza" value={formatRatioAsPercent(data.confidence)} />
           </div>
         </div>
+
+        <SentimentScale value={data.score} />
 
         <p className="max-w-prose text-ink-muted">{data.explanation}</p>
 
@@ -78,6 +83,11 @@ export function DeepLearningSection({ data }: { data: DLResult }) {
           />
         </div>
 
+        <ReturnProjection
+          returnPct={data.predicted_return_pct}
+          horizonDays={data.horizon_days}
+        />
+
         <div className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-3">
           <Stat label="Precio actual" value={formatCurrencyUsd(data.current_price)} />
           <Stat
@@ -108,11 +118,10 @@ export function FundamentalSection({ data }: { data: FundamentalResult }) {
   return (
     <ReportSection id="fundamental" title="Análisis fundamental" badge={<AiBadge />}>
       <div className="flex flex-col gap-5">
-        <div className="max-w-xs">
-          <Stat label="Puntuación fundamental" value={`${formatNumber(data.score, 1)} / 10`} />
-          <ScoreBar value={data.score} className="mt-2" />
+        <div className="flex flex-wrap items-center gap-6">
+          <ScoreDial value={data.score} label="Puntuación fundamental" />
+          <p className="max-w-prose flex-1 text-ink-muted">{data.llm_analysis}</p>
         </div>
-        <p className="max-w-prose text-ink-muted">{data.llm_analysis}</p>
         <MetricTable data={data.metrics} caption="Métricas fundamentales" />
       </div>
     </ReportSection>
@@ -122,18 +131,19 @@ export function FundamentalSection({ data }: { data: FundamentalResult }) {
 export function TechnicalSection({ data }: { data: TechnicalResult }) {
   return (
     <ReportSection id="technical" title="Análisis técnico" badge={<AiBadge />}>
-      <div className="flex flex-col gap-5">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-wrap items-center gap-6">
+          <ScoreDial value={data.score} label="Puntuación técnica" />
+          <div className="flex-1">
             <p className="mb-1 text-sm font-medium text-ink-subtle">Señal técnica</p>
             <TrendDisplay value={data.signal} kind="trend" />
-          </div>
-          <div className="w-full max-w-[16rem]">
-            <Stat label="Puntuación técnica" value={`${formatNumber(data.score, 1)} / 10`} />
-            <ScoreBar value={data.score} className="mt-2" />
+            <p className="mt-3 max-w-prose text-ink-muted">{data.llm_analysis}</p>
           </div>
         </div>
-        <p className="max-w-prose text-ink-muted">{data.llm_analysis}</p>
+        <div>
+          <h3 className="mb-3 text-sm font-semibold text-ink">Bloques técnicos</h3>
+          <BlockScores blocks={data.block_scores} />
+        </div>
         <MetricTable data={data.indicators} caption="Indicadores técnicos" />
       </div>
     </ReportSection>

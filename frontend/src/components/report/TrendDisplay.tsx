@@ -37,10 +37,12 @@ const LABELS: Record<Trend | SentimentLabel, string> = {
 export function TrendDisplay({
   value,
   kind,
+  size = 'md',
   className,
 }: {
   value: Trend | SentimentLabel
   kind: 'trend' | 'sentiment'
+  size?: 'sm' | 'md'
   className?: string
 }) {
   const direction =
@@ -50,8 +52,15 @@ export function TrendDisplay({
   const { icon: Icon, className: tone } = STYLES[direction]
 
   return (
-    <span className={cn('inline-flex items-center gap-2 text-xl font-semibold', tone, className)}>
-      <Icon className="w-6" />
+    <span
+      className={cn(
+        'inline-flex items-center font-semibold',
+        size === 'sm' ? 'gap-1.5 text-base' : 'gap-2 text-xl',
+        tone,
+        className,
+      )}
+    >
+      <Icon className={size === 'sm' ? 'w-5' : 'w-6'} />
       {LABELS[value]}
     </span>
   )
