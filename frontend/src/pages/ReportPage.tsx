@@ -52,6 +52,27 @@ function ErrorState({ error, onRetry }: { error: ApiError; onRetry: () => void }
     )
   }
 
+  if (error.status === 429) {
+    const wait =
+      error.retryAfter && error.retryAfter > 0
+        ? `Espera ${error.retryAfter} segundos y vuelve a intentarlo.`
+        : 'Espera un momento y vuelve a intentarlo.'
+    return (
+      <StatusMessage
+        tone="warning"
+        title="Demasiadas solicitudes"
+        action={
+          <Button variant="secondary" size="sm" onClick={onRetry}>
+            <RefreshIcon className="w-4" />
+            Reintentar
+          </Button>
+        }
+      >
+        <p>Has realizado muchas solicitudes en poco tiempo. {wait}</p>
+      </StatusMessage>
+    )
+  }
+
   const isConnection = error.status === 0
   return (
     <StatusMessage
