@@ -41,6 +41,19 @@ dev = [
     "pytest-cov>=7.1.0",
 ]
 
+# On Linux, PyPI's torch wheel bundles the full CUDA/NVIDIA stack (cuda-toolkit,
+# nvidia-cublas, nvidia-cudnn, nccl, triton...), which is dead weight on Render's
+# GPU-less free tier and bloats the process memory footprint. Pin torch to the
+# CPU-only wheel there. On Windows/macOS PyPI's torch is already CPU-only, so
+# this leaves local development unchanged.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
