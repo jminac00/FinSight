@@ -154,7 +154,7 @@ automáticamente al crear los servicios desde el repositorio (New → Blueprint)
 │   ├── ml_models/     # Ficheros .pt y .json por ticker
 │   ├── pyproject.toml # Dependencias (fuente de verdad)
 │   └── uv.lock        # Lockfile (commiteado en git)
-├── docs/              # Documentación del proyecto
+├── docs/              # Documentación del proyecto (memoria del TFG, ADRs)
 │   └── adr/           # Architecture Decision Records
 ├── data/              # CSVs históricos OHLC (en .gitignore)
 └── notebooks/         # Jupyter notebooks de entrenamiento
