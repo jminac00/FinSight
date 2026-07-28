@@ -17,7 +17,7 @@ dependencies = [
     # Data / ML
     "yfinance>=0.2.43",
     "finnhub-python>=2.4.20",
-    "torch>=2.4.1",
+    "torch>=2.4.1,<2.11",
     "numpy>=1.26.4",
     "pandas>=2.2.3",
     # Scheduler
@@ -41,18 +41,27 @@ dev = [
     "pytest-cov>=7.1.0",
 ]
 
-# On Linux, PyPI's torch wheel bundles the full CUDA/NVIDIA stack (cuda-toolkit,
-# nvidia-cublas, nvidia-cudnn, nccl, triton...), which is dead weight on Render's
-# GPU-less free tier and bloats the process memory footprint. Pin torch to the
-# CPU-only wheel there. On Windows/macOS PyPI's torch is already CPU-only, so
-# this leaves local development unchanged.
+# On linux/x86_64, PyPI's torch wheel bundles the full CUDA/NVIDIA stack
+# (cuda-toolkit, nvidia-cublas, nvidia-cudnn, nccl, triton...), which is dead
+# weight on a GPU-less host and bloats the process memory footprint. Pin torch
+# to the CPU-only wheel there.
+#
+# The pytorch-cpu index publishes no aarch64 wheels past torch 1.12, so
+# linux/aarch64 hosts must resolve torch from PyPI instead. PyPI's aarch64
+# wheel is CPU-only up to 2.10; from 2.11 onwards it ships the CUDA build,
+# which is why the torch requirement carries an upper bound.
+#
+# On Windows/macOS PyPI's torch is already CPU-only, so local development is
+# unchanged.
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torch = [
+    { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+]
 
 [tool.ruff]
 line-length = 100
