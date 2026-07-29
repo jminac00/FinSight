@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { DeepLearningUnavailable } from '../components/report/DeepLearningUnavailable'
 import { ReportOverview } from '../components/report/ReportOverview'
 import { ReportSkeleton } from '../components/report/ReportSkeleton'
 import {
@@ -169,6 +170,9 @@ export default function ReportPage() {
           <div className="space-y-4">
             {data.sentiment ? <SentimentSection data={data.sentiment} /> : null}
             {data.deep_learning ? <DeepLearningSection data={data.deep_learning} /> : null}
+            {!data.deep_learning && data.deep_learning_unavailable_reason ? (
+              <DeepLearningUnavailable reason={data.deep_learning_unavailable_reason} />
+            ) : null}
             {data.fundamental ? <FundamentalSection data={data.fundamental} /> : null}
             {data.technical ? <TechnicalSection data={data.technical} /> : null}
             <ConclusionSection conclusion={data.global_conclusion} />

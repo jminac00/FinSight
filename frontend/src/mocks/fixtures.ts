@@ -137,6 +137,7 @@ export function fullReport(ticker: string, companyName: string | null = null): R
     disclaimer: DISCLAIMER,
     partial_support: false,
     missing_modules: [],
+    deep_learning_unavailable_reason: null,
   }
 }
 
