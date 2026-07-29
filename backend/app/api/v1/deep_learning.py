@@ -6,10 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.config import Settings, get_settings
 from app.core.rate_limit import limiter
-from app.models.deep_learning import DLResult, DLTrainResult, ModelMetrics
+from app.models.deep_learning import DLResult, DLTrainResult, DLUnavailable, ModelMetrics
 from app.services.deep_learning.artifacts import DEFAULT_MODELS_DIR
 from app.services.deep_learning.preprocessing import InsufficientHistoryError
-from app.services.deep_learning.service import DLService, ModelNotAvailableError
+from app.services.deep_learning.service import DLService, DLUnavailableError
 
 router = APIRouter()
 
@@ -42,19 +42,30 @@ def get_dl_service() -> DLService:
     )
 
 
-@router.get("/prediction/{ticker}", response_model=DLResult)
+@router.get(
+    "/prediction/{ticker}",
+    response_model=DLResult,
+    responses={404: {"model": DLUnavailable, "description": "No prediction available"}},
+)
 @limiter.limit(lambda: get_settings().rate_limit_analysis)
 async def get_prediction(
     request: Request,
     ticker: str,
     service: DLService = Depends(get_dl_service),
 ) -> DLResult:
-    """Return a GRU-based 10-day return prediction for the given ticker."""
+    """Return a GRU-based 10-day return prediction for the given ticker.
+
+    When no prediction can be offered the response is a 404 whose ``detail``
+    carries both the machine-readable reason and a human message.
+    """
     ticker = _validate_ticker(ticker)
     try:
         return await service.predict(ticker)
-    except ModelNotAvailableError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DLUnavailableError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=DLUnavailable(reason=exc.reason, message=str(exc)).model_dump(),
+        ) from exc
     except (InsufficientHistoryError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

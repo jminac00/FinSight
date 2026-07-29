@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,7 @@ from app.core.config import get_settings
 from app.core.market_data import get_price_history
 from app.models.deep_learning import DLResult, ModelMetrics
 from app.services.deep_learning.artifacts import DEFAULT_MODELS_DIR, ModelArtifacts, ModelMetadata
+from app.services.deep_learning.coverage import is_covered
 from app.services.deep_learning.model import GRURegressor
 from app.services.deep_learning.preprocessing import (
     FEATURES,
@@ -42,16 +44,37 @@ def _period_for_days(days: int) -> str:
     return "max"
 
 
-class ModelNotAvailableError(Exception):
-    """Raised when no trained GRU artifact exists for a ticker."""
+class DLUnavailableError(Exception):
+    """Base for every reason a ticker has no GRU prediction to offer.
+
+    Each subclass pins a stable, machine-readable ``reason`` so the API and the
+    interface can explain the situation instead of just reporting a 404.
+    """
+
+    reason: str
 
 
-class ModelQualityInsufficientError(Exception):
+class OutOfCoverageError(DLUnavailableError):
+    """Raised when a ticker is outside the universe the module covers."""
+
+    reason = "out_of_coverage"
+
+
+class ModelNotAvailableError(DLUnavailableError):
+    """Raised when a covered ticker has no trained GRU artifact yet."""
+
+    reason = "not_trained"
+
+
+class ModelQualityInsufficientError(DLUnavailableError):
     """Raised when a trained GRU does not beat the naive predictor by enough.
 
     The model is not published: its weights are discarded and only the metadata
-    is kept, recording the skill ratio that ruled it out.
+    is kept, recording the skill ratio that ruled it out. Raised both when
+    training discards a model and when a prediction is asked for a discarded one.
     """
+
+    reason = "insufficient_quality"
 
 
 class DLService:
@@ -78,6 +101,28 @@ class DLService:
         return (self._models_dir / f"{ticker}.pt").is_file() and (
             self._models_dir / f"{ticker}.json"
         ).is_file()
+
+    def _unavailable(self, ticker: str) -> DLUnavailableError:
+        """Return the error explaining why *ticker* has no prediction.
+
+        Discarded models are reported first: when a model was actually trained
+        and rejected, that is the more precise answer than index membership.
+        """
+        json_path = self._models_dir / f"{ticker}.json"
+        if json_path.is_file():
+            meta = json.loads(json_path.read_text(encoding="utf-8"))
+            if not meta.get("published", True):
+                ratio = meta.get("skill_ratio")
+                detail = f" (skill_ratio={ratio:.3f})" if isinstance(ratio, int | float) else ""
+                return ModelQualityInsufficientError(
+                    f"The model trained for '{ticker}' does not reach the minimum "
+                    f"predictive performance required{detail}"
+                )
+        if not is_covered(ticker):
+            return OutOfCoverageError(
+                f"'{ticker}' is outside the coverage of the trend module (S&P 500)"
+            )
+        return ModelNotAvailableError(f"No trained model for '{ticker}' yet")
 
     def _get_model(self, ticker: str) -> tuple[nn.Module, ModelMetadata]:
         """Load model and metadata from LRU cache or disk. Blocking — call in thread."""
@@ -127,13 +172,16 @@ class DLService:
             horizon days, training date and model quality metrics.
 
         Raises:
-            ModelNotAvailableError: No trained artifact exists and auto_train is off.
+            OutOfCoverageError: The ticker is not in the covered universe.
+            ModelNotAvailableError: The ticker is covered but has no artifact yet.
+            ModelQualityInsufficientError: The trained model was discarded by the
+                quality gate, or auto-training just discarded a fresh one.
             InsufficientHistoryError: yfinance returned fewer than lookback clean candles.
             ValueError: yfinance returned no data for ticker.
         """
         if not await self.is_model_available(ticker):
             if not self._auto_train:
-                raise ModelNotAvailableError(f"No trained model for '{ticker}'")
+                raise self._unavailable(ticker)
             logger.info("No trained model for %s; training on demand (local)", ticker)
             await self.train(ticker)
 

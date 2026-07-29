@@ -20,7 +20,11 @@ from app.models.fundamental import FundamentalResult
 from app.models.search import SymbolMatch
 from app.models.sentiment import SentimentResult
 from app.models.technical import TechnicalBlockScores, TechnicalResult
-from app.services.deep_learning.service import ModelNotAvailableError
+from app.services.deep_learning.service import (
+    ModelNotAvailableError,
+    ModelQualityInsufficientError,
+    OutOfCoverageError,
+)
 
 _SENTIMENT = SentimentResult(
     label="positivo",
@@ -153,6 +157,73 @@ def test_get_report_partial_support_when_dl_unavailable(client, mock_services):
     assert data["partial_support"] is True
     assert data["missing_modules"] == ["deep_learning"]
     assert data["sentiment"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Why the deep learning module is missing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (OutOfCoverageError("outside the universe"), "out_of_coverage"),
+        (ModelNotAvailableError("not trained yet"), "not_trained"),
+        (ModelQualityInsufficientError("skill_ratio=1.20"), "insufficient_quality"),
+    ],
+)
+def test_get_report_exposes_the_dl_unavailability_reason(client, mock_services, error, reason):
+    svc_s, svc_d, svc_f, svc_t, svc_search, mock_llm = mock_services
+    svc_d.predict = AsyncMock(side_effect=error)
+
+    data = client.get("/api/v1/report/AAPL").json()
+
+    assert data["deep_learning"] is None
+    assert data["deep_learning_unavailable_reason"] == reason
+
+
+def test_get_report_reason_is_null_when_dl_is_available(client, mock_services):
+    data = client.get("/api/v1/report/AAPL").json()
+    assert data["deep_learning_unavailable_reason"] is None
+
+
+def test_get_report_reason_is_null_when_dl_fails_for_another_cause(client, mock_services):
+    """An unexpected failure is still just a missing module, with no reason to report."""
+    svc_s, svc_d, svc_f, svc_t, svc_search, mock_llm = mock_services
+    svc_d.predict = AsyncMock(side_effect=RuntimeError("yfinance timeout"))
+
+    data = client.get("/api/v1/report/AAPL").json()
+
+    assert data["missing_modules"] == ["deep_learning"]
+    assert data["deep_learning_unavailable_reason"] is None
+
+
+def test_get_report_passes_the_reason_to_the_synthesis_prompt(client, mock_services):
+    """The LLM must be told why, so the Spanish conclusion can explain it."""
+    svc_s, svc_d, svc_f, svc_t, svc_search, mock_llm = mock_services
+    svc_d.predict = AsyncMock(side_effect=ModelQualityInsufficientError("skill_ratio=1.20"))
+
+    client.get("/api/v1/report/AAPL")
+
+    user_prompt = mock_llm.complete.await_args.args[1]
+    assert "insufficient_quality" in user_prompt
+    # The wording must make clear a model exists but underperforms.
+    assert "minimum" in user_prompt.lower()
+
+
+def test_get_report_other_modules_keep_their_behaviour(client, mock_services):
+    """Sentiment, fundamental and technical still fail silently into missing_modules."""
+    svc_s, svc_d, svc_f, svc_t, svc_search, mock_llm = mock_services
+    svc_s.analyze = AsyncMock(side_effect=RuntimeError("neo4j down"))
+    svc_f.analyze = AsyncMock(side_effect=RuntimeError("yahoo down"))
+
+    data = client.get("/api/v1/report/AAPL").json()
+
+    assert data["sentiment"] is None
+    assert data["fundamental"] is None
+    assert data["technical"] is not None
+    assert set(data["missing_modules"]) == {"sentiment", "fundamental"}
+    assert data["deep_learning_unavailable_reason"] is None
 
 
 def test_get_report_force_refresh_forwarded_to_services(client, mock_services):
