@@ -1,0 +1,45 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    image: finsight-backend:latest
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    volumes:
+      # Trained GRU artifacts must outlive container rebuilds: the scheduler
+      # retrains them nightly and they are expensive to regenerate on CPU.
+      - ml_models:/app/ml_models
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    networks:
+      - finsight
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+    networks:
+      - finsight
+
+volumes:
+  ml_models:
+  caddy_data:
+  caddy_config:
+
+networks:
+  finsight:
