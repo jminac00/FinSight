@@ -5,7 +5,17 @@
 finsight-api.duckdns.org {
 	encode zstd gzip
 
-	reverse_proxy backend:8000
+	# The API is the only surface this host serves. Internet-wide scanners probe
+	# constantly for .env files, cloud credentials and admin panels; answering
+	# them here keeps that traffic off the application and out of its logs.
+	@api path /api/*
+	handle @api {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		respond 404
+	}
 
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
