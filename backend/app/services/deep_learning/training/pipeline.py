@@ -19,7 +19,7 @@ from app.services.deep_learning.preprocessing import (
     make_dataset,
 )
 from app.services.deep_learning.recipe import GRURecipe
-from app.services.deep_learning.training.evaluation import evaluate
+from app.services.deep_learning.training.evaluation import evaluate, naive_rmse
 from app.services.deep_learning.training.trainer import fit
 
 
@@ -39,6 +39,10 @@ def train_ticker(
     When *initial_state_dict* is provided the model is warm-started from those
     weights instead of random initialisation (useful for daily incremental updates).
     Raises InsufficientHistoryError if the history cannot fill all three splits.
+
+    The returned metadata carries ``skill_ratio`` (the model's RMSE relative to
+    the zero-return baseline) but is always ``published=False``: deciding whether
+    the ratio is good enough belongs to the service, which owns the threshold.
     """
     dataset = make_dataset(ohlc, recipe)
     train, val, test = chrono_split(dataset)
@@ -67,6 +71,12 @@ def train_ticker(
         device=device,
     )
     metrics = evaluate(test.y, predict(model, test.X, device=device))
+    # Score the model against the zero-return baseline on the very same split,
+    # so the ratio compares like with like.
+    metrics["rmse_naive"] = naive_rmse(test.y)
+    skill_ratio = (
+        metrics["rmse"] / metrics["rmse_naive"] if metrics["rmse_naive"] > 0 else float("inf")
+    )
 
     metadata = ModelMetadata(
         ticker=ticker,
@@ -83,5 +93,7 @@ def train_ticker(
         metrics=metrics,
         n_samples=len(dataset.y),
         data_through=dataset.t_index[-1].date().isoformat(),
+        skill_ratio=skill_ratio,
+        published=False,  # a candidate until the service's quality gate promotes it
     )
     return ModelArtifacts(ticker=ticker, state_dict=model.state_dict(), metadata=metadata)
