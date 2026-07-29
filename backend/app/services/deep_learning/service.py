@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 from cachetools import LRUCache
 
+from app.core.config import get_settings
 from app.core.market_data import get_price_history
 from app.models.deep_learning import DLResult, ModelMetrics
 from app.services.deep_learning.artifacts import DEFAULT_MODELS_DIR, ModelArtifacts, ModelMetadata
@@ -43,6 +44,14 @@ def _period_for_days(days: int) -> str:
 
 class ModelNotAvailableError(Exception):
     """Raised when no trained GRU artifact exists for a ticker."""
+
+
+class ModelQualityInsufficientError(Exception):
+    """Raised when a trained GRU does not beat the naive predictor by enough.
+
+    The model is not published: its weights are discarded and only the metadata
+    is kept, recording the skill ratio that ruled it out.
+    """
 
 
 class DLService:
@@ -184,10 +193,16 @@ class DLService:
             max_epochs: Training budget (fewer than cold-start default since
                 warm-start converges faster).
 
+        A model is only published when it beats the naive zero-return predictor
+        by the margin ``DL_MAX_SKILL_RATIO`` demands. Otherwise the weights are
+        dropped and only the metadata is written, so the ticker keeps a record of
+        why it is not served.
+
         Returns:
-            The newly trained :class:`ModelArtifacts`.
+            The newly trained :class:`ModelArtifacts`, published.
 
         Raises:
+            ModelQualityInsufficientError: The model did not beat the baseline.
             InsufficientHistoryError: yfinance returned too few clean candles.
             ValueError: yfinance returned no data for the ticker.
         """
@@ -197,7 +212,8 @@ class DLService:
         initial_state_dict: dict | None = None
         period = "3y"
 
-        if await self.is_model_available(ticker):
+        was_published = await self.is_model_available(ticker)
+        if was_published:
             current = await asyncio.to_thread(ModelArtifacts.load, ticker, self._models_dir)
             initial_state_dict = current.state_dict
             days_gap = (date.today() - date.fromisoformat(current.metadata.data_through)).days
@@ -214,13 +230,43 @@ class DLService:
             initial_state_dict=initial_state_dict,
             max_epochs=max_epochs,
         )
+        threshold = get_settings().dl_max_skill_ratio
+        skill_ratio = new_artifacts.metadata.skill_ratio
+
+        if skill_ratio >= threshold:
+            if was_published:
+                # A worse retraining does not retire a model that already earned
+                # its place: both artifacts are left exactly as they were.
+                logger.warning(
+                    "Retrained %s scored skill_ratio=%.3f (threshold %.2f); "
+                    "keeping the previously published model",
+                    ticker,
+                    skill_ratio,
+                    threshold,
+                )
+            else:
+                new_artifacts.metadata.published = False
+                await asyncio.to_thread(new_artifacts.save_metadata, self._models_dir)
+                logger.info(
+                    "Discarded %s: skill_ratio=%.3f (threshold %.2f) — metadata only",
+                    ticker,
+                    skill_ratio,
+                    threshold,
+                )
+            raise ModelQualityInsufficientError(
+                f"Model for '{ticker}' does not beat the naive predictor "
+                f"(skill_ratio={skill_ratio:.3f}, threshold={threshold:.2f})"
+            )
+
+        new_artifacts.metadata.published = True
         await asyncio.to_thread(new_artifacts.save, self._models_dir)
         self.evict(ticker)
         logger.info(
-            "Trained %s: rmse=%.4f da=%.2f%% data_through=%s",
+            "Trained %s: rmse=%.4f da=%.2f%% skill_ratio=%.3f data_through=%s",
             ticker,
             new_artifacts.metadata.metrics["rmse"],
             new_artifacts.metadata.metrics["directional_accuracy"] * 100,
+            skill_ratio,
             new_artifacts.metadata.data_through,
         )
         return new_artifacts
