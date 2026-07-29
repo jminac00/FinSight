@@ -51,8 +51,12 @@ def _write_discarded_metadata(models_dir, ticker: str) -> None:
                 "lookback": 24,
                 "input_size": 9,
                 "recipe": {},
-                "metrics": {"rmse": 6.0, "mae": 4.8, "directional_accuracy": 0.48,
-                            "rmse_naive": 5.0},
+                "metrics": {
+                    "rmse": 6.0,
+                    "mae": 4.8,
+                    "directional_accuracy": 0.48,
+                    "rmse_naive": 5.0,
+                },
                 "n_samples": 300,
                 "data_through": "2026-07-20",
                 "skill_ratio": 1.2,
@@ -166,8 +170,9 @@ async def test_auto_train_still_runs_before_reporting_a_reason(tmp_path, make_oh
         from app.services.deep_learning.recipe import load_frozen_recipe
         from app.services.deep_learning.training.pipeline import train_ticker
 
-        artifacts = train_ticker(make_ohlc(n=400, seed=1), ticker, load_frozen_recipe(),
-                                 max_epochs=3)
+        artifacts = train_ticker(
+            make_ohlc(n=400, seed=1), ticker, load_frozen_recipe(), max_epochs=3
+        )
         artifacts.metadata.published = True
         artifacts.save(tmp_path)
         return artifacts

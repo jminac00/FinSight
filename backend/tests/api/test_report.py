@@ -156,6 +156,7 @@ def test_get_report_partial_support_when_dl_unavailable(client, mock_services):
     assert data["deep_learning"] is None
     assert data["partial_support"] is True
     assert data["missing_modules"] == ["deep_learning"]
+    assert data["sentiment"] is not None
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +224,6 @@ def test_get_report_other_modules_keep_their_behaviour(client, mock_services):
     assert data["technical"] is not None
     assert set(data["missing_modules"]) == {"sentiment", "fundamental"}
     assert data["deep_learning_unavailable_reason"] is None
-    assert data["sentiment"] is not None
 
 
 def test_get_report_force_refresh_forwarded_to_services(client, mock_services):
