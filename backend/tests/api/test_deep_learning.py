@@ -12,7 +12,11 @@ from app.core.config import get_settings
 from app.main import app
 from app.models.deep_learning import DLResult, ModelMetrics
 from app.services.deep_learning.preprocessing import InsufficientHistoryError
-from app.services.deep_learning.service import ModelNotAvailableError
+from app.services.deep_learning.service import (
+    ModelNotAvailableError,
+    ModelQualityInsufficientError,
+    OutOfCoverageError,
+)
 
 _RESULT = DLResult(
     trend="alcista",
@@ -89,6 +93,32 @@ def test_get_prediction_model_not_available_returns_404(client):
     try:
         response = client.get("/api/v1/prediction/FAKE")
         assert response.status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_dl_service, None)
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (OutOfCoverageError("'REP.MC' is outside the S&P 500 universe"), "out_of_coverage"),
+        (ModelNotAvailableError("No trained model for 'NVDA'"), "not_trained"),
+        (
+            ModelQualityInsufficientError("Model for 'XOM' does not beat the naive predictor"),
+            "insufficient_quality",
+        ),
+    ],
+)
+def test_get_prediction_404_body_carries_the_reason(client, error, reason):
+    """Each unavailability state is a 404 whose body states why."""
+    service = MagicMock()
+    service.predict = AsyncMock(side_effect=error)
+    app.dependency_overrides[get_dl_service] = lambda: service
+    try:
+        response = client.get("/api/v1/prediction/AAPL")
+        assert response.status_code == 404
+        detail = response.json()["detail"]
+        assert detail["reason"] == reason
+        assert detail["message"] == str(error)
     finally:
         app.dependency_overrides.pop(get_dl_service, None)
 
