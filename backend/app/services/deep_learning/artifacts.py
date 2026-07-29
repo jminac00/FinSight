@@ -27,9 +27,17 @@ class ModelMetadata:
     lookback: int
     input_size: int
     recipe: dict  # hidden_size, num_layers, dense_units, dropout
-    metrics: dict  # rmse, mae, directional_accuracy
+    metrics: dict  # rmse, mae, directional_accuracy, rmse_naive
     n_samples: int
     data_through: str  # ISO-8601 date of the last training sample
+    # rmse / rmse_naive on the evaluation split: below 1.0 the model beats the
+    # zero-return baseline. None only for artifacts written before the quality
+    # gate existed, which carry no such measurement.
+    skill_ratio: float | None = None
+    # Whether the model is served. Defaults to True so pre-gate artifacts keep
+    # being served: a .pt on disk was published by definition. The training
+    # pipeline builds candidates as unpublished and the service promotes them.
+    published: bool = True
 
 
 @dataclass
@@ -40,13 +48,22 @@ class ModelArtifacts:
     state_dict: dict
     metadata: ModelMetadata
 
+    def save_metadata(self, models_dir: Path = DEFAULT_MODELS_DIR) -> Path:
+        """Write only ``{ticker}.json``; return its path.
+
+        The persistence path for models the quality gate discarded: they leave a
+        record of why they are not served, without the weights nobody will load.
+        """
+        models_dir.mkdir(parents=True, exist_ok=True)
+        json_path = models_dir / f"{self.ticker}.json"
+        json_path.write_text(json.dumps(asdict(self.metadata), indent=2), encoding="utf-8")
+        return json_path
+
     def save(self, models_dir: Path = DEFAULT_MODELS_DIR) -> tuple[Path, Path]:
         """Write ``{ticker}.pt`` and ``{ticker}.json``; return both paths."""
-        models_dir.mkdir(parents=True, exist_ok=True)
+        json_path = self.save_metadata(models_dir)
         pt_path = models_dir / f"{self.ticker}.pt"
-        json_path = models_dir / f"{self.ticker}.json"
         torch.save(self.state_dict, pt_path)
-        json_path.write_text(json.dumps(asdict(self.metadata), indent=2), encoding="utf-8")
         return pt_path, json_path
 
     @classmethod

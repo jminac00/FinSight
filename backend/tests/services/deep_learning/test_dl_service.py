@@ -239,6 +239,7 @@ async def test_train_cold_start_uses_none_initial_state_dict(tmp_path):
     df = _make_ohlc_df(n=400)
     mock_artifacts = MagicMock()
     mock_artifacts.save = MagicMock()
+    mock_artifacts.metadata.skill_ratio = 0.5  # beats the naive baseline → published
 
     with patch(_P_PRICE, return_value=df):
         with patch(_P_TRAIN, return_value=mock_artifacts) as mock_train:
@@ -254,6 +255,7 @@ async def test_train_cold_start_uses_3y_period(tmp_path):
     df = _make_ohlc_df(n=400)
     mock_artifacts = MagicMock()
     mock_artifacts.save = MagicMock()
+    mock_artifacts.metadata.skill_ratio = 0.5  # beats the naive baseline → published
 
     with patch(_P_PRICE, return_value=df) as mock_fetch:
         with patch(_P_TRAIN, return_value=mock_artifacts):
@@ -273,6 +275,7 @@ async def test_train_warm_start_passes_initial_state_dict(service):
     df = _make_ohlc_df(n=400)
     mock_artifacts = MagicMock()
     mock_artifacts.save = MagicMock()
+    mock_artifacts.metadata.skill_ratio = 0.5  # beats the naive baseline → published
 
     with patch(_P_PRICE, return_value=df):
         with patch(_P_TRAIN, return_value=mock_artifacts) as mock_train:
@@ -287,6 +290,7 @@ async def test_train_warm_start_period_proportional_to_gap(service):
     df = _make_ohlc_df(n=400)
     mock_artifacts = MagicMock()
     mock_artifacts.save = MagicMock()
+    mock_artifacts.metadata.skill_ratio = 0.5  # beats the naive baseline → published
 
     with patch(_P_PRICE, return_value=df) as mock_fetch:
         with patch(_P_TRAIN, return_value=mock_artifacts):
@@ -302,6 +306,7 @@ async def test_train_evicts_cache_entry_after_retraining(service):
     df_train = _make_ohlc_df(n=400)
     mock_artifacts = MagicMock()
     mock_artifacts.save = MagicMock()
+    mock_artifacts.metadata.skill_ratio = 0.5  # beats the naive baseline → published
 
     # Load AAPL into cache
     with patch("app.services.deep_learning.service.get_price_history", return_value=df_infer):
