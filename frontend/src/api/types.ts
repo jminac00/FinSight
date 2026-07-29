@@ -43,6 +43,16 @@ export type DLResult = {
   metrics: ModelMetrics
 }
 
+/**
+ * Why the deep learning module has no prediction to offer.
+ *
+ * - `out_of_coverage`: the ticker is not in the covered universe (S&P 500).
+ * - `not_trained`: covered, but no model has been trained for it yet.
+ * - `insufficient_quality`: a model exists but did not beat the naive
+ *   predictor, so it is deliberately not served.
+ */
+export type DLUnavailableReason = 'out_of_coverage' | 'not_trained' | 'insufficient_quality'
+
 export type FundamentalResult = {
   /** Composite score in [0, 10]. */
   score: number
@@ -91,6 +101,8 @@ export type ReportResponse = {
   generated_at: string
   sentiment: SentimentResult | null
   deep_learning: DLResult | null
+  /** Why the prediction is missing; null when present or when it failed unexpectedly. */
+  deep_learning_unavailable_reason: DLUnavailableReason | null
   fundamental: FundamentalResult | null
   technical: TechnicalResult | null
   global_conclusion: string
