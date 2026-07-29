@@ -82,6 +82,36 @@ describe('ReportPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('explains why the prediction is missing and still renders the rest', async () => {
+    server.use(
+      http.get('/api/v1/report/:ticker', () =>
+        HttpResponse.json({
+          ...fullReport('XOM'),
+          deep_learning: null,
+          deep_learning_unavailable_reason: 'insufficient_quality',
+          partial_support: true,
+          missing_modules: ['deep_learning'],
+        }),
+      ),
+    )
+
+    renderReport('XOM')
+
+    expect(await screen.findByText(/no alcanza el mínimo exigido/i)).toBeInTheDocument()
+    // The other three modules and the conclusion are unaffected.
+    expect(screen.getByRole('heading', { name: /análisis de sentimiento/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /análisis fundamental/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /análisis técnico/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /conclusión global/i })).toBeInTheDocument()
+  })
+
+  it('omits the explanation when the backend reports no reason', async () => {
+    renderReport('TSLA')
+
+    await screen.findByText(/soporte parcial/i)
+    expect(screen.queryByText(/predicción de tendencia no disponible/i)).not.toBeInTheDocument()
+  })
+
   it('rejects an invalid ticker without crashing', async () => {
     renderReport('A_B')
     expect(await screen.findByText(/símbolo no válido/i)).toBeInTheDocument()
