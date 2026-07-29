@@ -111,10 +111,54 @@ Copia `backend/.env.example` a `backend/.env` y rellena los valores:
 | `MAX_NEWS_ARTICLES` | Máximo de artículos de noticias por consulta (por defecto `10`) |
 | `GRAPH_HOP_DEPTH` | Profundidad k-hop en Neo4j (por defecto `2`) |
 | `LRU_CACHE_MAX_MODELS` | Máximo de modelos GRU en caché LRU (por defecto `10`) |
+| `DL_MAX_SKILL_RATIO` | Ratio `rmse_modelo/rmse_naive` máximo para publicar un modelo GRU (por defecto `1.0`) |
 | `RATE_LIMIT_REPORT` | Límite de peticiones a `/report` por IP (por defecto `10/minute`) |
 | `RATE_LIMIT_ANALYSIS` | Límite de peticiones a los endpoints de análisis por IP (por defecto `10/minute`) |
 | `RATE_LIMIT_SEARCH` | Límite de peticiones a `/search` por IP (por defecto `60/minute`) |
 | `FUNDAMENTAL_DATA_DIR` | Directorio de universos de referencia del análisis fundamental (vacío → ubicación por defecto del paquete) |
+
+---
+
+## Scripts batch offline
+
+Procesos que se ejecutan a mano desde `backend/`, fuera del ciclo de petición.
+
+### Entrenamiento del universo de deep learning
+
+Entrena un modelo GRU por cada valor del S&P 500. Solo se publican los modelos que
+superan al predictor naive de retorno cero: si el ratio
+`rmse_modelo/rmse_naive` no baja de `DL_MAX_SKILL_RATIO`, el modelo se descarta y
+queda registrado en su `.json` con `published=false`, sin fichero `.pt`.
+
+```bash
+cd backend
+
+# Universo completo (~500 valores, secuencial)
+uv run python -m scripts.train_dl_universe
+
+# Prueba rápida: solo los 10 primeros pendientes
+uv run python -m scripts.train_dl_universe --limit 10
+
+# Recalcular también lo ya publicado y lo ya descartado
+uv run python -m scripts.train_dl_universe --force
+
+# Empezar de cero, borrando los artefactos anteriores
+uv run python -m scripts.train_dl_universe --clean
+```
+
+| Argumento | Efecto |
+|-----------|--------|
+| `--limit N` | Entrena como máximo N valores en esta ejecución |
+| `--force` | Recalcula también los valores ya publicados o ya descartados |
+| `--clean` | Borra los `.pt` y `.json` previos antes de empezar (pide confirmación) |
+| `--yes` | Omite la confirmación de `--clean` |
+
+La ejecución es **secuencial** a propósito: con 2 OCPU paralelizar no compensa y
+tensa el rate limit de yfinance. Es **reanudable**: sin `--force` se salta los
+valores que ya tienen un modelo publicado o un descarte registrado, así que una
+ejecución interrumpida se retoma sin repetir trabajo. Un fallo en un valor no
+aborta la ejecución; al terminar se registra el resumen con publicados,
+descartados por calidad, errores y artefactos eliminados.
 
 ---
 
