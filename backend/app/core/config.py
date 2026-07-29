@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     graph_hop_depth: int = 2
     lru_cache_max_models: int = 10
 
+    # Deep learning quality gate: a model is published only when its
+    # rmse_model / rmse_naive ratio is strictly below this threshold. At 1.0 a
+    # model must simply beat the zero-return baseline; lower values demand a
+    # wider margin over it.
+    dl_max_skill_ratio: float = 1.0
+
     # Rate limiting (requests per time window, per client IP)
     rate_limit_report: str = "10/minute"
     rate_limit_analysis: str = "10/minute"
