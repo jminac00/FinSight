@@ -220,7 +220,8 @@ async def test_failed_retraining_of_published_model_is_logged_as_warning(
         with pytest.raises(ModelQualityInsufficientError):
             await service.train("AAPL")
 
-    assert any("AAPL" in record.message % record.args for record in caplog.records)
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("AAPL" in message and "1.500" in message for message in warnings)
 
 
 # ---------------------------------------------------------------------------
