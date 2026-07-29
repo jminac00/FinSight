@@ -18,5 +18,13 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     css: true,
+    // Vitest loads `.env` through Vite, so a developer's dev configuration
+    // would otherwise leak into the suite. A local VITE_API_BASE_URL makes the
+    // client build absolute URLs that the relative MSW handlers never match,
+    // turning the suite red locally while CI — which has no `.env` — stays
+    // green. Pinning it empty keeps every request same-origin and interceptable.
+    env: {
+      VITE_API_BASE_URL: '',
+    },
   },
 })
