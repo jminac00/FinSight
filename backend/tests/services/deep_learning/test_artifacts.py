@@ -35,6 +35,7 @@ def test_json_metadata_schema(make_ohlc, tmp_path):
         "data_through",
         "skill_ratio",
         "published",
+        "published_override",
     }
     assert set(meta["metrics"]) == {"rmse", "mae", "directional_accuracy", "rmse_naive"}
     assert set(meta["recipe"]) == {"hidden_size", "num_layers", "dense_units", "dropout"}

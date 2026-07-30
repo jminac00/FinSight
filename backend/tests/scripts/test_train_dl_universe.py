@@ -135,6 +135,44 @@ def test_limit_resumes_where_the_previous_run_stopped(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# --tickers
+# ---------------------------------------------------------------------------
+
+
+def test_tickers_trains_only_the_given_symbols(tmp_path):
+    trained: list[str] = []
+    _run(tmp_path, _service(trained), ["--tickers", "NVDA,PEP"])
+    assert trained == ["NVDA", "PEP"]
+
+
+def test_tickers_combines_with_force(tmp_path):
+    _published(tmp_path, "NVDA")
+    trained: list[str] = []
+    _run(tmp_path, _service(trained), ["--tickers", "NVDA,PEP", "--force"])
+    assert trained == ["NVDA", "PEP"]
+
+
+def test_tickers_without_force_still_skips_resolved_symbols(tmp_path):
+    _published(tmp_path, "NVDA")
+    trained: list[str] = []
+    _run(tmp_path, _service(trained), ["--tickers", "NVDA,PEP"])
+    assert trained == ["PEP"]
+
+
+def test_tickers_with_clean_aborts_with_an_error(tmp_path, capsys):
+    (tmp_path / ".gitkeep").write_text("", encoding="utf-8")
+    _published(tmp_path, "AAPL")
+    trained: list[str] = []
+
+    with pytest.raises(SystemExit):
+        _run(tmp_path, _service(trained), ["--tickers", "NVDA", "--clean", "--yes"])
+
+    assert trained == []
+    assert (tmp_path / "AAPL.pt").exists()
+    assert "cannot be combined" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
 # Resilience
 # ---------------------------------------------------------------------------
 

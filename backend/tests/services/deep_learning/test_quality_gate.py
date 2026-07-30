@@ -9,6 +9,7 @@ real ``train_ticker`` wiring is covered in ``test_training.py``.
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -251,6 +252,92 @@ def test_legacy_metadata_without_the_new_fields_loads(tmp_path):
     assert loaded.metadata.skill_ratio is None
     # A model already on disk was published by definition — it keeps being served.
     assert loaded.metadata.published is True
+
+
+# ---------------------------------------------------------------------------
+# Publication by manual exception
+# ---------------------------------------------------------------------------
+
+
+def _forced(*tickers: str, threshold: float = 1.0) -> MagicMock:
+    """Settings double whose publish-override list holds *tickers*."""
+    return MagicMock(dl_max_skill_ratio=threshold, dl_force_publish_tickers=list(tickers))
+
+
+async def test_listed_ticker_is_published_despite_a_failing_ratio(gated_service, tmp_path):
+    service, set_ratio = gated_service
+    set_ratio(1.3)
+
+    with patch(f"{_SERVICE}.get_settings", return_value=_forced("MSFT")):
+        artifacts = await service.train("MSFT")
+
+    assert (tmp_path / "MSFT.pt").exists()
+    metadata = json.loads((tmp_path / "MSFT.json").read_text())
+    assert metadata["published"] is True
+    assert metadata["published_override"] is True
+    assert artifacts.metadata.published_override is True
+
+
+async def test_unlisted_ticker_with_the_same_ratio_is_discarded(gated_service, tmp_path):
+    service, set_ratio = gated_service
+    set_ratio(1.3)
+
+    with patch(f"{_SERVICE}.get_settings", return_value=_forced("MSFT")):
+        with pytest.raises(ModelQualityInsufficientError):
+            await service.train("XOM")
+
+    assert not (tmp_path / "XOM.pt").exists()
+    assert json.loads((tmp_path / "XOM.json").read_text())["published"] is False
+
+
+async def test_listed_ticker_that_beats_the_gate_is_not_an_override(gated_service, tmp_path):
+    """Earning publication and being granted it are recorded differently."""
+    service, set_ratio = gated_service
+    set_ratio(0.85)
+
+    with patch(f"{_SERVICE}.get_settings", return_value=_forced("MSFT")):
+        await service.train("MSFT")
+
+    assert json.loads((tmp_path / "MSFT.json").read_text())["published_override"] is False
+
+
+async def test_publication_by_exception_is_logged_as_a_warning(gated_service, caplog):
+    service, set_ratio = gated_service
+    set_ratio(1.3)
+
+    with caplog.at_level("WARNING"):
+        with patch(f"{_SERVICE}.get_settings", return_value=_forced("MSFT")):
+            await service.train("MSFT")
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("MSFT" in message and "1.300" in message for message in warnings)
+
+
+def test_metadata_without_the_override_field_loads(tmp_path):
+    """Artifacts written before the exception list existed carry no such flag."""
+    artifacts = _artifacts("PEP", 0.8)
+    metadata = asdict(artifacts.metadata)
+    del metadata["published_override"]
+    (tmp_path / "PEP.json").write_text(json.dumps(metadata), encoding="utf-8")
+    torch.save(artifacts.state_dict, tmp_path / "PEP.pt")
+
+    loaded = ModelArtifacts.load("PEP", tmp_path)
+
+    assert loaded.metadata.published_override is False
+
+
+def test_settings_expose_an_empty_publish_override_list_by_default():
+    from app.core.config import Settings
+
+    assert Settings(_env_file=None).dl_force_publish_tickers == []
+
+
+def test_publish_override_list_is_read_as_a_comma_separated_string(monkeypatch):
+    from app.core.config import Settings
+
+    monkeypatch.setenv("DL_FORCE_PUBLISH_TICKERS", "msft, nvda ,amzn")
+
+    assert Settings(_env_file=None).dl_force_publish_tickers == ["MSFT", "NVDA", "AMZN"]
 
 
 # ---------------------------------------------------------------------------
