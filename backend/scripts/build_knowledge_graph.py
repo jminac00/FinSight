@@ -2,12 +2,12 @@
 Offline batch script — builds the Neo4j knowledge graph from FinEntity and FinMarBa datasets.
 
 Usage (from backend/):
-    uv run python scripts/build_knowledge_graph.py \\
+    uv run python -m scripts.build_knowledge_graph \\
         --finentity scripts/kg_builder/data/FinEntity_dataset.json \\
         --finmarba  scripts/kg_builder/data/FinMarBa_dataset.csv
 
-    uv run python scripts/build_knowledge_graph.py --init-schema   # schema only
-    uv run python scripts/build_knowledge_graph.py --limit 20 ...  # smoke test
+    uv run python -m scripts.build_knowledge_graph --init-schema   # schema only
+    uv run python -m scripts.build_knowledge_graph --limit 20 ...  # smoke test
 """
 
 import argparse

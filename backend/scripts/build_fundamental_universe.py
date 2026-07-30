@@ -7,9 +7,9 @@ engine/data/ and refreshed weekly by the scheduler; run this manually to regener
 The MSCI World build needs engine/data/URTH_holdings.csv (the official iShares holdings export).
 
 Usage (from backend/):
-    uv run python scripts/build_fundamental_universe.py             # both universes
-    uv run python scripts/build_fundamental_universe.py --only sp500
-    uv run python scripts/build_fundamental_universe.py --only msci_world
+    uv run python -m scripts.build_fundamental_universe             # both universes
+    uv run python -m scripts.build_fundamental_universe --only sp500
+    uv run python -m scripts.build_fundamental_universe --only msci_world
 """
 
 import argparse
