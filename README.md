@@ -112,6 +112,7 @@ Copia `backend/.env.example` a `backend/.env` y rellena los valores:
 | `GRAPH_HOP_DEPTH` | Profundidad k-hop en Neo4j (por defecto `2`) |
 | `LRU_CACHE_MAX_MODELS` | Máximo de modelos GRU en caché LRU (por defecto `10`) |
 | `DL_MAX_SKILL_RATIO` | Ratio `rmse_modelo/rmse_naive` máximo para publicar un modelo GRU (por defecto `1.0`) |
+| `DL_FORCE_PUBLISH_TICKERS` | Símbolos separados por comas publicados aunque no superen ese umbral (por defecto vacío) |
 | `RATE_LIMIT_REPORT` | Límite de peticiones a `/report` por IP (por defecto `10/minute`) |
 | `RATE_LIMIT_ANALYSIS` | Límite de peticiones a los endpoints de análisis por IP (por defecto `10/minute`) |
 | `RATE_LIMIT_SEARCH` | Límite de peticiones a `/search` por IP (por defecto `60/minute`) |
@@ -128,7 +129,9 @@ Procesos que se ejecutan a mano desde `backend/`, fuera del ciclo de petición.
 Entrena un modelo GRU por cada valor del S&P 500. Solo se publican los modelos que
 superan al predictor naive de retorno cero: si el ratio
 `rmse_modelo/rmse_naive` no baja de `DL_MAX_SKILL_RATIO`, el modelo se descarta y
-queda registrado en su `.json` con `published=false`, sin fichero `.pt`.
+queda registrado en su `.json` con `published=false`, sin fichero `.pt`. Los
+símbolos listados en `DL_FORCE_PUBLISH_TICKERS` son la excepción: se publican
+igualmente, marcados con `published_override=true`.
 
 ```bash
 cd backend
@@ -142,6 +145,9 @@ uv run python -m scripts.train_dl_universe --limit 10
 # Recalcular también lo ya publicado y lo ya descartado
 uv run python -m scripts.train_dl_universe --force
 
+# Solo unos valores concretos, recalculándolos
+uv run python -m scripts.train_dl_universe --tickers AAPL,MSFT --force
+
 # Empezar de cero, borrando los artefactos anteriores
 uv run python -m scripts.train_dl_universe --clean
 ```
@@ -149,6 +155,7 @@ uv run python -m scripts.train_dl_universe --clean
 | Argumento | Efecto |
 |-----------|--------|
 | `--limit N` | Entrena como máximo N valores en esta ejecución |
+| `--tickers A,B` | Entrena solo esos símbolos en lugar del universo completo (incompatible con `--clean`) |
 | `--force` | Recalcula también los valores ya publicados o ya descartados |
 | `--clean` | Borra los `.pt` y `.json` previos antes de empezar (pide confirmación) |
 | `--yes` | Omite la confirmación de `--clean` |
