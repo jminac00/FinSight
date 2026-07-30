@@ -6,9 +6,9 @@ engine/data/ and refreshed daily by the scheduler; run this manually to regenera
 before a demo, or before committing a fresher snapshot).
 
 Usage (from backend/):
-    uv run python scripts/build_technical_universe.py               # both universes
-    uv run python scripts/build_technical_universe.py --only sp500
-    uv run python scripts/build_technical_universe.py --only msci_world
+    uv run python -m scripts.build_technical_universe               # both universes
+    uv run python -m scripts.build_technical_universe --only sp500
+    uv run python -m scripts.build_technical_universe --only msci_world
 """
 
 import argparse
