@@ -244,7 +244,9 @@ class DLService:
         A model is only published when it beats the naive zero-return predictor
         by the margin ``DL_MAX_SKILL_RATIO`` demands. Otherwise the weights are
         dropped and only the metadata is written, so the ticker keeps a record of
-        why it is not served.
+        why it is not served. Tickers listed in ``DL_FORCE_PUBLISH_TICKERS`` are
+        the exception: they are published whatever their ratio, with
+        ``published_override`` recording that it was a manual decision.
 
         Returns:
             The newly trained :class:`ModelArtifacts`, published.
@@ -278,10 +280,21 @@ class DLService:
             initial_state_dict=initial_state_dict,
             max_epochs=max_epochs,
         )
-        threshold = get_settings().dl_max_skill_ratio
+        settings = get_settings()
+        threshold = settings.dl_max_skill_ratio
         skill_ratio = new_artifacts.metadata.skill_ratio
+        forced = ticker in settings.dl_force_publish_tickers
 
-        if skill_ratio >= threshold:
+        if skill_ratio >= threshold and forced:
+            new_artifacts.metadata.published_override = True
+            logger.warning(
+                "Publishing %s by manual exception: skill_ratio=%.3f misses the "
+                "threshold %.2f but the ticker is on the publish-override list",
+                ticker,
+                skill_ratio,
+                threshold,
+            )
+        elif skill_ratio >= threshold:
             if was_published:
                 # A worse retraining does not retire a model that already earned
                 # its place: both artifacts are left exactly as they were.
