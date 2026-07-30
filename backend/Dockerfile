@@ -31,6 +31,10 @@ WORKDIR /app
 COPY --from=builder --chown=finsight:finsight /app/.venv /app/.venv
 COPY --chown=finsight:finsight app ./app
 
+# Offline batch scripts (universe building, model training) are run inside the
+# container with `python -m scripts.<name>`.
+COPY --chown=finsight:finsight scripts ./scripts
+
 # Mirrors the repository layout: app.services.deep_learning.artifacts resolves
 # the model directory as <parent of the app package>/ml_models.
 RUN mkdir -p /app/ml_models && chown finsight:finsight /app/ml_models
