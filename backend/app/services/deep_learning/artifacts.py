@@ -38,6 +38,10 @@ class ModelMetadata:
     # being served: a .pt on disk was published by definition. The training
     # pipeline builds candidates as unpublished and the service promotes them.
     published: bool = True
+    # True when the model reached disk through the publish-override list instead
+    # of passing the quality gate on its own merit. Defaults to False so earlier
+    # artifacts, written before the list existed, keep loading.
+    published_override: bool = False
 
 
 @dataclass

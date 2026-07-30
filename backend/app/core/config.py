@@ -1,8 +1,9 @@
 import logging
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,21 @@ class Settings(BaseSettings):
     # model must simply beat the zero-return baseline; lower values demand a
     # wider margin over it.
     dl_max_skill_ratio: float = 1.0
+
+    # Tickers published regardless of their skill ratio, so the module stays
+    # demonstrable on the symbols users search the most. Every ticker outside
+    # this list keeps going through the quality gate untouched.
+    dl_force_publish_tickers: Annotated[list[str], NoDecode] = []
+
+    @field_validator("dl_force_publish_tickers", mode="before")
+    @classmethod
+    def _split_tickers(cls, value: object) -> object:
+        """Accept a comma-separated string and normalise symbols to uppercase."""
+        if isinstance(value, str):
+            value = value.split(",")
+        if isinstance(value, list):
+            return [str(item).strip().upper() for item in value if str(item).strip()]
+        return value
 
     # Rate limiting (requests per time window, per client IP)
     rate_limit_report: str = "10/minute"

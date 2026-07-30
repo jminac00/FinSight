@@ -17,6 +17,7 @@ Usage (from backend/):
     uv run python -m scripts.train_dl_universe
     uv run python -m scripts.train_dl_universe --limit 10
     uv run python -m scripts.train_dl_universe --force
+    uv run python -m scripts.train_dl_universe --tickers AAPL,MSFT --force
     uv run python -m scripts.train_dl_universe --clean --yes
 """
 
@@ -76,9 +77,25 @@ def is_resolved(models_dir: Path, ticker: str) -> bool:
     return (models_dir / f"{ticker}.pt").is_file()
 
 
-def pending_tickers(models_dir: Path, *, force: bool, limit: int | None) -> list[str]:
-    """Return the tickers this run should train, in universe order."""
-    tickers = list(universe_tickers())
+def parse_tickers(raw: str) -> list[str]:
+    """Split a comma-separated ``--tickers`` value into uppercase symbols."""
+    return [t.strip().upper() for t in raw.split(",") if t.strip()]
+
+
+def pending_tickers(
+    models_dir: Path,
+    *,
+    force: bool,
+    limit: int | None,
+    selection: list[str] | None = None,
+) -> list[str]:
+    """Return the tickers this run should train.
+
+    In universe order, unless *selection* names an explicit subset — then that
+    order is kept. Resumability applies either way: without *force*, tickers that
+    already have a verdict are dropped.
+    """
+    tickers = list(universe_tickers()) if selection is None else list(selection)
     if not force:
         tickers = [t for t in tickers if not is_resolved(models_dir, t)]
     return tickers[:limit] if limit else tickers
@@ -126,6 +143,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Train at most N tickers in this run (for smoke tests and chunked runs)",
     )
     parser.add_argument(
+        "--tickers",
+        type=parse_tickers,
+        default=None,
+        metavar="SYMBOLS",
+        help="Comma-separated symbols to train instead of the whole universe",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Retrain every ticker, including those already published or discarded",
@@ -140,7 +164,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Skip the confirmation prompt for --clean",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.tickers is not None and args.clean:
+        # --clean wipes the whole directory, which a targeted run never intends.
+        parser.error("--tickers cannot be combined with --clean")
+    return args
 
 
 def main() -> None:
@@ -159,7 +187,9 @@ def main() -> None:
         removed = clean_artifacts(models_dir)
         logger.info("Removed %d artifact files from %s", removed, models_dir)
 
-    tickers = pending_tickers(models_dir, force=args.force, limit=args.limit)
+    tickers = pending_tickers(
+        models_dir, force=args.force, limit=args.limit, selection=args.tickers
+    )
     if not tickers:
         logger.info("Nothing to train — every ticker in the universe is already resolved")
         return
