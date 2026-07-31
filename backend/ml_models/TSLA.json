@@ -1,6 +1,6 @@
 {
   "ticker": "TSLA",
-  "trained_at": "2026-07-01T17:23:43.528676+00:00",
+  "trained_at": "2026-07-31T00:18:49.143933+00:00",
   "horizon_days": 10,
   "lookback": 24,
   "input_size": 7,
@@ -11,10 +11,14 @@
     "dropout": 0.24283099538508776
   },
   "metrics": {
-    "rmse": 11.619089126586914,
-    "mae": 8.883367538452148,
-    "directional_accuracy": 0.5110356536502547
+    "rmse": 8.757555961608887,
+    "mae": 6.706873893737793,
+    "directional_accuracy": 0.46938775510204084,
+    "rmse_naive": 8.753948211669922
   },
-  "n_samples": 3993,
-  "data_through": "2026-06-16"
+  "n_samples": 720,
+  "data_through": "2026-07-16",
+  "skill_ratio": 1.0004121283164726,
+  "published": true,
+  "published_override": true
 }

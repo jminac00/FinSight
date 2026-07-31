@@ -1,6 +1,6 @@
 {
   "ticker": "GOOGL",
-  "trained_at": "2026-07-01T17:19:57.511468+00:00",
+  "trained_at": "2026-07-31T00:18:45.220127+00:00",
   "horizon_days": 10,
   "lookback": 24,
   "input_size": 7,
@@ -11,10 +11,14 @@
     "dropout": 0.24283099538508776
   },
   "metrics": {
-    "rmse": 5.915177822113037,
-    "mae": 4.5902791023254395,
-    "directional_accuracy": 0.623921085080148
+    "rmse": 7.923294544219971,
+    "mae": 6.535862922668457,
+    "directional_accuracy": 0.45918367346938777,
+    "rmse_naive": 8.023743629455566
   },
-  "n_samples": 5468,
-  "data_through": "2026-06-16"
+  "n_samples": 720,
+  "data_through": "2026-07-16",
+  "skill_ratio": 0.9874810200980447,
+  "published": true,
+  "published_override": false
 }

@@ -1,6 +1,6 @@
 {
   "ticker": "MSFT",
-  "trained_at": "2026-07-01T17:18:56.185413+00:00",
+  "trained_at": "2026-07-31T00:18:37.748385+00:00",
   "horizon_days": 10,
   "lookback": 24,
   "input_size": 7,
@@ -11,10 +11,14 @@
     "dropout": 0.24283099538508776
   },
   "metrics": {
-    "rmse": 4.986195087432861,
-    "mae": 3.896632194519043,
-    "directional_accuracy": 0.5562208915502329
+    "rmse": 6.889469623565674,
+    "mae": 5.408323287963867,
+    "directional_accuracy": 0.5204081632653061,
+    "rmse_naive": 6.867160797119141
   },
-  "n_samples": 10083,
-  "data_through": "2026-06-16"
+  "n_samples": 720,
+  "data_through": "2026-07-16",
+  "skill_ratio": 1.0032486244469319,
+  "published": true,
+  "published_override": true
 }

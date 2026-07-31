@@ -1,6 +1,6 @@
 {
   "ticker": "NFLX",
-  "trained_at": "2026-07-01T17:24:50.476245+00:00",
+  "trained_at": "2026-07-31T00:18:50.980309+00:00",
   "horizon_days": 10,
   "lookback": 24,
   "input_size": 7,
@@ -11,10 +11,14 @@
     "dropout": 0.24283099538508776
   },
   "metrics": {
-    "rmse": 7.521978378295898,
-    "mae": 5.961106777191162,
-    "directional_accuracy": 0.5329608938547487
+    "rmse": 7.289615631103516,
+    "mae": 6.102969646453857,
+    "directional_accuracy": 0.2653061224489796,
+    "rmse_naive": 7.225063800811768
   },
-  "n_samples": 6032,
-  "data_through": "2026-06-16"
+  "n_samples": 720,
+  "data_through": "2026-07-16",
+  "skill_ratio": 1.008934430486897,
+  "published": true,
+  "published_override": true
 }

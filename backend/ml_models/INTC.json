@@ -1,6 +1,6 @@
 {
-  "ticker": "AMZN",
-  "trained_at": "2026-07-31T00:18:41.614250+00:00",
+  "ticker": "INTC",
+  "trained_at": "2026-07-31T00:19:21.149752+00:00",
   "horizon_days": 10,
   "lookback": 24,
   "input_size": 7,
@@ -11,14 +11,14 @@
     "dropout": 0.24283099538508776
   },
   "metrics": {
-    "rmse": 7.579401969909668,
-    "mae": 5.680470943450928,
-    "directional_accuracy": 0.5510204081632653,
-    "rmse_naive": 7.590457439422607
+    "rmse": 25.76368522644043,
+    "mae": 18.749834060668945,
+    "directional_accuracy": 0.4897959183673469,
+    "rmse_naive": 24.976526260375977
   },
   "n_samples": 720,
   "data_through": "2026-07-16",
-  "skill_ratio": 0.9985435041825648,
-  "published": true,
+  "skill_ratio": 1.031515950531249,
+  "published": false,
   "published_override": false
 }
