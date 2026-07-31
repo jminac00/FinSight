@@ -1,6 +1,6 @@
 {
-  "ticker": "AMZN",
-  "trained_at": "2026-07-31T00:18:41.614250+00:00",
+  "ticker": "JPM",
+  "trained_at": "2026-07-31T00:18:52.956692+00:00",
   "horizon_days": 10,
   "lookback": 24,
   "input_size": 7,
@@ -11,14 +11,14 @@
     "dropout": 0.24283099538508776
   },
   "metrics": {
-    "rmse": 7.579401969909668,
-    "mae": 5.680470943450928,
-    "directional_accuracy": 0.5510204081632653,
-    "rmse_naive": 7.590457439422607
+    "rmse": 4.228521347045898,
+    "mae": 3.3560984134674072,
+    "directional_accuracy": 0.673469387755102,
+    "rmse_naive": 4.294332981109619
   },
   "n_samples": 720,
   "data_through": "2026-07-16",
-  "skill_ratio": 0.9985435041825648,
+  "skill_ratio": 0.9846747715295436,
   "published": true,
   "published_override": false
 }

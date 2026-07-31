@@ -1,6 +1,6 @@
 {
   "ticker": "NVDA",
-  "trained_at": "2026-07-01T17:16:38.469256+00:00",
+  "trained_at": "2026-07-31T00:18:39.677052+00:00",
   "horizon_days": 10,
   "lookback": 24,
   "input_size": 7,
@@ -11,10 +11,14 @@
     "dropout": 0.24283099538508776
   },
   "metrics": {
-    "rmse": 9.65479850769043,
-    "mae": 7.502857208251953,
-    "directional_accuracy": 0.5984329089128305
+    "rmse": 6.902440547943115,
+    "mae": 5.573585510253906,
+    "directional_accuracy": 0.5,
+    "rmse_naive": 6.921370506286621
   },
-  "n_samples": 6869,
-  "data_through": "2026-06-16"
+  "n_samples": 720,
+  "data_through": "2026-07-16",
+  "skill_ratio": 0.9972649985539263,
+  "published": true,
+  "published_override": false
 }
